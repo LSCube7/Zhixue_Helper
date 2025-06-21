@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "智学工具箱",
+  "version": "1.0",
+  "description": "提高智学网使用体验",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.zhixue.com/*",
+    "https://ali-bg.zhixue.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.zhixue.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["inject.js"],
+      "matches": ["https://www.zhixue.com/*"]
+    }
+  ],
+  "action": {
+    "default_title": "智学工具箱"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  }
+}
