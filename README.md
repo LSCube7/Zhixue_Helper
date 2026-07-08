@@ -1,6 +1,13 @@
-# 智学工具箱 (Zhixue Helper)
+# Owl Insight
 
 一个浏览器扩展程序，用于增强智学网的使用体验，提供考试列表获取、详细排名查看等功能。
+
+## 技术栈
+
+- Vite
+- React
+- TypeScript
+- Chrome Manifest V3
 
 ## 🌟 功能特性
 
@@ -14,11 +21,28 @@
 ### 开发者模式安装
 
 1. 下载或克隆此项目到本地
-2. 打开Chrome浏览器，进入扩展程序管理页面（`chrome://extensions/`）
-3. 开启右上角的"开发者模式"
-4. 点击"加载已解压的扩展程序"
-5. 选择项目文件夹
-6. 安装完成后，扩展图标会出现在浏览器工具栏
+2. 安装依赖：`pnpm install`
+3. 构建扩展：`pnpm run build`
+4. 打开Chrome浏览器，进入扩展程序管理页面（`chrome://extensions/`）
+5. 开启右上角的"开发者模式"
+6. 点击"加载已解压的扩展程序"
+7. 选择项目生成的 `dist` 文件夹
+8. 安装完成后，扩展图标会出现在浏览器工具栏
+
+## 开发命令
+
+- `pnpm install`：安装依赖
+- `pnpm run typecheck`：运行 TypeScript 类型检查
+- `pnpm run build`：构建 Chrome 扩展到 `dist`
+
+## 项目结构
+
+- `src/popup`：React 扩展页面
+- `src/background`：Manifest V3 service worker
+- `src/content`：扩展与网页之间的 content script 桥接层
+- `src/injected`：注入到智学网页面上下文中的接口请求层
+- `src/shared`：共享类型、消息协议、格式化和排名计算
+- `legacy/main.user.js`：旧油猴脚本归档，不参与构建
 
 ## 📖 使用说明
 
