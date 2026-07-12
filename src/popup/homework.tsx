@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import type {
   HomeworkItem,
@@ -12,10 +13,12 @@ import { MaterialIcon } from "./icons";
 const PAGE_SIZE = 20;
 
 export function HomeworkView({
+  isDemoMode,
   onLoadSubjects,
   onLoadList,
   onLoadResources
 }: {
+  isDemoMode: boolean;
   onLoadSubjects: () => Promise<HomeworkSubject[]>;
   onLoadList: (input: { status: HomeworkStatus; subjectCode: string; pageSize: number; createTime?: number }) => Promise<HomeworkListPage>;
   onLoadResources: (homework: HomeworkItem) => Promise<HomeworkResource[]>;
@@ -163,6 +166,7 @@ export function HomeworkView({
             <p className="breadcrumb">Homework detail</p>
             <h2 className="section-title" ref={detailHeadingRef} tabIndex={-1}>{selectedHomework.title}</h2>
             <div className="record-chip-row" aria-label="作业信息">
+              {isDemoMode ? <span className="info-chip info-chip--strong">演示数据</span> : null}
               <span className="info-chip">{subjects.find((subject) => subject.code === selectedHomework.subjectCode)?.name ?? selectedHomework.subjectName}</span>
               <span className="info-chip">{selectedHomework.typeName}</span>
               <span className={`info-chip ${selectedHomework.status === 0 ? "" : "info-chip--strong"}`}>{selectedHomework.status === 0 ? "未提交" : "已提交"}</span>
@@ -226,30 +230,33 @@ export function HomeworkView({
           ) : <div className="status-alert" role="status">此作业没有返回可用资源。</div>}
         </section>
 
-        <md-dialog
-          className="resource-preview-dialog"
-          open={Boolean(previewResource)}
-          onClosed={() => setPreviewResource(null)}
-          onCancel={() => setPreviewResource(null)}
-        >
-          <div slot="headline">{previewResource?.name ?? "资源预览"}</div>
-          <div slot="content" className="resource-preview-content">
-            {previewError ? <div className="status-alert" role="alert">{previewError}</div> : null}
-            {previewResource ? (
-              previewResource.text !== undefined ? (
-                <pre className="resource-text-preview">{previewResource.text}</pre>
-              ) : isImageResource(previewResource) && previewResource.url ? (
-                <img className="resource-image-preview" src={previewResource.url} alt={previewResource.name} onError={() => setPreviewError("图片预览加载失败，可以尝试在新窗口打开或直接下载。")}/>
-              ) : isTextUrlResource(previewResource) && previewResource.url ? (
-                <iframe className="resource-document-preview" src={previewResource.url} title={`预览 ${previewResource.name}`} sandbox="" />
-              ) : null
-            ) : null}
-          </div>
-          <div slot="actions">
-            {previewResource?.url ? <md-outlined-button onClick={openPreviewInNewTab}>新窗口打开</md-outlined-button> : null}
-            <md-filled-button onClick={() => setPreviewResource(null)}>关闭</md-filled-button>
-          </div>
-        </md-dialog>
+        {createPortal(
+          <md-dialog
+            className="app-dialog resource-preview-dialog"
+            open={Boolean(previewResource)}
+            onClosed={() => setPreviewResource(null)}
+            onCancel={() => setPreviewResource(null)}
+          >
+            <div slot="headline">{previewResource?.name ?? "资源预览"}</div>
+            <div slot="content" className="resource-preview-content">
+              {previewError ? <div className="status-alert" role="alert">{previewError}</div> : null}
+              {previewResource ? (
+                previewResource.text !== undefined ? (
+                  <pre className="resource-text-preview">{previewResource.text}</pre>
+                ) : isImageResource(previewResource) && previewResource.url ? (
+                  <img className="resource-image-preview" src={previewResource.url} alt={previewResource.name} onError={() => setPreviewError("图片预览加载失败，可以尝试在新窗口打开或直接下载。")}/>
+                ) : isTextUrlResource(previewResource) && previewResource.url ? (
+                  <iframe className="resource-document-preview" src={previewResource.url} title={`预览 ${previewResource.name}`} sandbox="" />
+                ) : null
+              ) : null}
+            </div>
+            <div slot="actions">
+              {previewResource?.url ? <md-outlined-button onClick={openPreviewInNewTab}>新窗口打开</md-outlined-button> : null}
+              <md-filled-button onClick={() => setPreviewResource(null)}>关闭</md-filled-button>
+            </div>
+          </md-dialog>,
+          document.body
+        )}
       </div>
     );
   }
@@ -261,7 +268,7 @@ export function HomeworkView({
           <div>
             <p className="breadcrumb">Homework</p>
             <h2 className="section-title">作业资源</h2>
-            <p className="helper-text">按提交状态和科目查找作业，资源只保留在当前页面中。</p>
+            <p className="helper-text">{isDemoMode ? "当前为虚拟作业；预览和下载只使用扩展内置的演示文件。" : "按提交状态和科目查找作业，资源只保留在当前页面中。"}</p>
           </div>
           <md-outlined-button disabled={loading} onClick={() => void loadList(true)}>刷新列表</md-outlined-button>
         </div>
@@ -296,6 +303,7 @@ export function HomeworkView({
               <span className="homework-item__body">
                 <strong>{homework.title}</strong>
                 <span className="record-chip-row">
+                  {isDemoMode ? <span className="info-chip info-chip--strong">演示数据</span> : null}
                   <span className="info-chip">{subjects.find((subject) => subject.code === homework.subjectCode)?.name ?? homework.subjectName}</span>
                   <span className="info-chip">{homework.typeName}</span>
                   <span className="info-chip">{formatHomeworkTime(homework.beginTime)} 至 {formatHomeworkTime(homework.endTime)}</span>

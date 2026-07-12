@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="title desc">
+  <title id="title">Owl Insight 演示题目预览</title>
+  <desc id="desc">仅用于演示资源预览和下载流程的虚拟学习卡片</desc>
+  <defs>
+    <linearGradient id="background" x1="0" x2="1" y1="0" y2="1">
+      <stop stop-color="#2E2868"/>
+      <stop offset="1" stop-color="#1A53D6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="720" rx="48" fill="url(#background)"/>
+  <circle cx="1040" cy="110" r="180" fill="#FFAA00" opacity=".18"/>
+  <rect x="125" y="185" width="950" height="390" rx="32" fill="#FEFBFF"/>
+  <text x="185" y="270" fill="#6750A4" font-family="Microsoft YaHei UI, sans-serif" font-size="34" font-weight="700">Owl Insight · 演示数据</text>
+  <text x="185" y="360" fill="#1B1B1F" font-family="Microsoft YaHei UI, sans-serif" font-size="42" font-weight="700">函数与导数 · 示例题目</text>
+  <text x="185" y="435" fill="#45464F" font-family="Microsoft YaHei UI, sans-serif" font-size="28">已知 f(x) = x² − 4x + 3，请观察图像并描述单调区间。</text>
+  <text x="185" y="515" fill="#745470" font-family="Microsoft YaHei UI, sans-serif" font-size="24">此图片为本地生成的虚拟素材，不包含真实作业内容。</text>
+</svg>
