@@ -9,20 +9,24 @@ export function ConnectionView({
   profile,
   status,
   connecting,
+  isDemoMode,
   onOpenZhixue,
   onRefreshTabs,
   onSelectTab,
-  onConnect
+  onConnect,
+  onEnterDemo
 }: {
   availableTabs: chrome.tabs.Tab[];
   selectedTabId: number | null;
   profile: ConnectionProfile | null;
   status: string;
   connecting: boolean;
+  isDemoMode: boolean;
   onOpenZhixue: () => void;
   onRefreshTabs: () => void;
   onSelectTab: (tabId: number | null) => void;
   onConnect: () => void;
+  onEnterDemo: () => void;
 }) {
   const [avatarFailed, setAvatarFailed] = useState(false);
 
@@ -33,16 +37,25 @@ export function ConnectionView({
       <section className="md-card connection-hero">
         <div>
           <p className="breadcrumb">Connection</p>
-          <h2 className="section-title">连接智学网页面</h2>
-          <p className="helper-text">Owl Insight 会自动连接合适页面，也支持手动切换；不会读取或保存 Cookie 内容。</p>
+          <h2 className="section-title">{isDemoMode ? "正在体验演示数据" : "连接智学网页面"}</h2>
+          <p className="helper-text">{isDemoMode ? "当前学生、考试、成绩和作业均为虚拟内容，不会访问智学网。" : "Owl Insight 会自动连接合适页面，也支持手动切换；不会读取或保存 Cookie 内容。"}</p>
         </div>
         <div className="connection-status" data-ready={Boolean(profile)}>
-          <MaterialIcon name={profile ? "verified_user" : "link"} />
+          <MaterialIcon name={isDemoMode ? "science" : profile ? "verified_user" : "link"} />
           <span>{status}</span>
         </div>
       </section>
 
-      <section className="tutorial-grid" aria-label="连接教程">
+      {!isDemoMode ? <section className="md-card demo-entry-card">
+        <div>
+          <p className="breadcrumb">Demo</p>
+          <h2 className="section-title">无需登录，先体验核心功能</h2>
+          <p className="helper-text">使用完全虚构的学生、考试和作业数据；演示结束后不会保留，也不会写入真实成绩缓存。</p>
+        </div>
+        <md-outlined-button onClick={onEnterDemo}>体验演示</md-outlined-button>
+      </section> : null}
+
+      {!isDemoMode ? <section className="tutorial-grid" aria-label="连接教程">
         {[
           ["1", "打开智学网", "在浏览器中打开智学网并完成学生账号登录。"],
           ["2", "检测页面", "返回 Owl Insight，点击重新检测获取可连接页面。"],
@@ -57,9 +70,9 @@ export function ConnectionView({
             </div>
           </article>
         ))}
-      </section>
+      </section> : null}
 
-      <section className="md-card stack">
+      {!isDemoMode ? <section className="md-card stack">
         <div className="spread">
           <div>
             <h2 className="section-title">选择页面</h2>
@@ -94,7 +107,7 @@ export function ConnectionView({
             {connecting ? "正在连接..." : "连接并验证"}
           </md-filled-button>
         </div>
-      </section>
+      </section> : null}
 
       {profile ? (
         <section className="md-card profile-card" aria-label="已连接学生资料">
@@ -111,7 +124,7 @@ export function ConnectionView({
                 <p className="breadcrumb">Connected Student</p>
                 <h2 className="section-title">{profile.name}</h2>
               </div>
-              <span className="badge">已连接</span>
+              <span className="badge">{isDemoMode ? "演示数据" : "已连接"}</span>
             </div>
             <dl className="profile-facts">
               <div><dt>登录账号</dt><dd>{profile.loginName}</dd></div>

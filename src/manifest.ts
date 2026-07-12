@@ -1,7 +1,7 @@
 const manifest = {
   manifest_version: 3,
   name: "__MSG_extensionName__",
-  version: "2.1.0",
+  version: "2.2.0",
   description: "__MSG_extensionDescription__",
   default_locale: "zh_CN",
   permissions: ["activeTab", "storage", "tabs", "downloads", "scripting", "declarativeNetRequest"],

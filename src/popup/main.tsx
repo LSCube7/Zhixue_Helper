@@ -3,6 +3,7 @@ import "./material-web";
 
 import { CorePalette, Hct, argbFromHex, hexFromArgb } from "@material/material-color-utilities";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
   CartesianGrid,
@@ -20,6 +21,21 @@ import {
   XAxis,
   YAxis
 } from "recharts";
+
+import {
+  demoAcademicYears,
+  demoAnalysisPlans,
+  demoAnalysisTemplates,
+  demoClassificationRules,
+  demoExams,
+  demoHomeworkSubjects,
+  demoInitialExamIds,
+  demoProfile,
+  getDemoExamDetail,
+  getDemoHomeworkList,
+  getDemoHomeworkResources,
+  getDemoSubjectLevelTrend
+} from "../demo/data";
 
 import {
   buildAnalysisLabels,
@@ -139,6 +155,7 @@ type LoadingState =
 
 type ExamViewMode = "ready" | "selectYear" | "examList" | "examDetail";
 type MainView = "connection" | "exams" | "analysis" | "homework" | "subject" | "settings" | "rules" | "changelog";
+type RuntimeMode = "live" | "demo";
 const SNACKBAR_DURATION_MS = 6000;
 
 type ExamListItem = ExamItem & {
@@ -171,11 +188,13 @@ const examsPerPage = 10;
 
 function App() {
   const appMainRef = useRef<HTMLElement | null>(null);
+  const runtimeModeRef = useRef<RuntimeMode>("live");
   const selectedTabIdRef = useRef<number | null>(null);
   const connectedTabIdRef = useRef<number | null>(null);
   const connectingTabIdRef = useRef<number | null>(null);
   const connectionAttemptRef = useRef(0);
   const [settings, setSettings] = useState<OwlSettings>(() => applyStoredTheme());
+  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>("live");
   const [mainView, setMainView] = useState<MainView>("connection");
   const [examViewMode, setExamViewMode] = useState<ExamViewMode>("ready");
   const [connectionStatus, setConnectionStatus] = useState("正在检查智学网页面...");
@@ -215,6 +234,7 @@ function App() {
   const [loadingState, setLoadingState] = useState<LoadingState>({ kind: "idle" });
 
   const connectionReady = Boolean(connectionProfile && selectedTabId);
+  const workspaceReady = runtimeMode === "demo" || connectionReady;
   const selectedExamCount = selectedExamIds.size + selectedCachedExamKeys.size;
   const visibleAnalysisRecords = useMemo(() => sortByExamTimeAsc(analysisState.records), [analysisState.records]);
   const analysisGroups = useMemo(
@@ -251,6 +271,7 @@ function App() {
   );
 
   const checkZhixueTabs = useCallback(async () => {
+    if (runtimeModeRef.current === "demo") return;
     try {
       const tabs = await chrome.tabs.query({});
       const zhixueTabs = tabs.filter((tab) => tab.id && isConnectableZhixueTab(tab));
@@ -282,6 +303,7 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (runtimeMode === "demo") return;
     void checkZhixueTabs();
     const intervalId = window.setInterval(() => void checkZhixueTabs(), 60000);
     const handleTabRemoved = (tabId: number) => {
@@ -300,7 +322,7 @@ function App() {
       chrome.tabs.onUpdated.removeListener(handleTabUpdated);
       chrome.tabs.onActivated.removeListener(handleTabActivated);
     };
-  }, [checkZhixueTabs]);
+  }, [checkZhixueTabs, runtimeMode]);
 
   useEffect(() => {
     void initializeLocalData();
@@ -366,6 +388,7 @@ function App() {
       listExamNotes(),
       readAnalysisInsightSettings()
     ]);
+    if (runtimeModeRef.current === "demo") return;
     setCachedReportMainRecords(cachedRecords);
     setCacheHealth(buildCacheHealth(cachedRecords, allCacheRecords));
     setCacheStats(stats);
@@ -398,6 +421,7 @@ function App() {
   }
 
   async function connectTab(tabId: number, automatic: boolean) {
+    if (runtimeModeRef.current === "demo") return;
     if (connectingTabIdRef.current === tabId) return;
     const attempt = connectionAttemptRef.current + 1;
     connectionAttemptRef.current = attempt;
@@ -425,7 +449,118 @@ function App() {
     }
   }
 
+  async function enterDemoMode() {
+    runtimeModeRef.current = "demo";
+    setRuntimeMode("demo");
+    connectionAttemptRef.current += 1;
+    connectingTabIdRef.current = null;
+    connectedTabIdRef.current = null;
+    selectedTabIdRef.current = null;
+    setConnecting(false);
+    setAvailableTabs([]);
+    setSelectedTabId(null);
+    setConnectionProfile(demoProfile);
+    setConnectionStatus("演示模式 · 当前资料均为虚拟数据");
+
+    const initialExams = demoExams.filter((exam) => demoInitialExamIds.includes(exam.examId));
+    const selectedExamMap = Object.fromEntries(initialExams.map((exam) => [getExamSelectionKey(exam), exam]));
+    const demoInsightSettings: AnalysisInsightSettings = {
+      scoreDropThreshold: 5,
+      rankDropThreshold: 5,
+      classificationRules: demoClassificationRules
+    };
+
+    setAcademicYears(demoAcademicYears);
+    setSelectedAcademicYears([...demoAcademicYears]);
+    setAllExamItems(sortExamItems(demoExams));
+    setSelectedExamTypes(new Set());
+    setSelectedClassificationLabels(new Set());
+    setCurrentPage(1);
+    setSelectedExamDetail(null);
+    setSelectedSubjectDetail(null);
+    setExamViewMode("examList");
+    setSelectedExamIds(new Set(Object.keys(selectedExamMap)));
+    setSelectedExamMap(selectedExamMap);
+    setSelectedCachedExamKeys(new Set());
+    setCachedReportMainRecords([]);
+    setCacheStats(null);
+    setCacheHealth({ missingRank: [], missingSubjectTrend: [], missingMetadata: [] });
+    setAnalysisPlans(demoAnalysisPlans.map((plan) => ({ ...plan })));
+    setAnalysisTemplates(demoAnalysisTemplates.map((template) => ({ ...template })));
+    setSelectedAnalysisTemplateId(null);
+    setSelectedAnalysisPlanIds(new Set([demoAnalysisPlans[0].id]));
+    setActiveAnalysisPlanId(null);
+    setExamNotes({});
+    setAnalysisSettings(demoInsightSettings);
+    setAnalysisTarget({ metric: "percentage", total: 82, subjects: {} });
+    setAnalysisNote("演示数据展示了持续提升、一次阶段性回落和期末恢复。所有内容均为虚构。");
+    setAnalysisMetric("percentage");
+    setLoadingState({ kind: "loading", message: "正在准备演示分析...", current: 0, total: initialExams.length });
+
+    const records = await buildAnalysisRecordsFromSources(
+      initialExams.map((exam) => ({ kind: "exam" as const, exam })),
+      {
+        forceRefresh: true,
+        cachePolicy: "none",
+        sendExamDetail: getDemoExamDetail,
+        sendSubjectLevelTrend: getDemoSubjectLevelTrend,
+        onProgress: (completed, total) => {
+          if (runtimeModeRef.current === "demo") {
+            setLoadingState({ kind: "loading", message: `已准备 ${completed}/${total} 场演示考试`, current: completed, total });
+          }
+        }
+      }
+    );
+
+    if (runtimeModeRef.current !== "demo") return;
+    setAnalysisState({ records, failedCount: initialExams.length - records.length, generatedAt: new Date().toISOString() });
+    setVisibleSubjectNames(new Set(records.flatMap((record) => record.subjects.map((subject) => subject.subjectName))));
+    setLoadingState({ kind: "idle" });
+    setStatusMessage("已进入演示模式；当前内容均为虚拟数据，不会访问智学网或真实缓存。");
+    setMainView("analysis");
+  }
+
+  async function exitDemoMode() {
+    runtimeModeRef.current = "live";
+    setRuntimeMode("live");
+    connectionAttemptRef.current += 1;
+    connectingTabIdRef.current = null;
+    connectedTabIdRef.current = null;
+    selectedTabIdRef.current = null;
+    setConnecting(false);
+    setAvailableTabs([]);
+    setSelectedTabId(null);
+    setConnectionProfile(null);
+    setConnectionStatus("正在检查智学网页面...");
+    setAcademicYears([]);
+    setSelectedAcademicYears([]);
+    setAllExamItems([]);
+    setSelectedExamTypes(new Set());
+    setSelectedClassificationLabels(new Set());
+    setCurrentPage(1);
+    setSelectedExamDetail(null);
+    setSelectedSubjectDetail(null);
+    setExamViewMode("ready");
+    setSelectedExamIds(new Set());
+    setSelectedExamMap({});
+    setSelectedCachedExamKeys(new Set());
+    setAnalysisState({ records: [], failedCount: 0, generatedAt: null });
+    setVisibleSubjectNames(new Set());
+    setLoadingState({ kind: "idle" });
+    setMainView("connection");
+    setStatusMessage("已退出演示模式，正在恢复真实数据。");
+    await refreshLocalData();
+  }
+
   async function loadAcademicYears() {
+    if (runtimeMode === "demo") {
+      setAcademicYears(demoAcademicYears);
+      setSelectedAcademicYears([...demoAcademicYears]);
+      setAllExamItems(sortExamItems(demoExams));
+      setExamViewMode("examList");
+      setMainView("exams");
+      return;
+    }
     setMainView("exams");
     setLoadingState({ kind: "loading", message: "正在获取学年信息..." });
 
@@ -479,7 +614,7 @@ function App() {
         return next;
       });
       setAllExamItems(sortExamItems(exams));
-      void repairCachedExamMetadataFromList(exams);
+      if (runtimeMode === "live") void repairCachedExamMetadataFromList(exams);
       setSelectedExamTypes((current) => new Set(Array.from(current).filter((type) => exams.some((exam) => exam.examType === type))));
       setExamViewMode("examList");
       setLoadingState({ kind: "idle" });
@@ -489,6 +624,9 @@ function App() {
   }
 
   async function loadAllExamPagesForYear(year: AcademicYear): Promise<ExamListItem[]> {
+    if (runtimeMode === "demo") {
+      return demoExams.filter((exam) => exam.academicYearKey === (year.code ?? ""));
+    }
     const academicYearKey = getAcademicYearKey(year);
     const academicYearName = year.name;
     const result: ExamListItem[] = [];
@@ -693,9 +831,14 @@ function App() {
       ],
       {
         forceRefresh,
-        sendExamDetail: <TData,>(payload: ExamDetailPayload) => sendMessageToSelectedTab<ExamDetailPayload, TData>("getExamDetail", payload),
-        sendSubjectLevelTrend: <TData,>(payload: SubjectLevelTrendPayload) => sendMessageToSelectedTab<SubjectLevelTrendPayload, TData>("getSubjectLevelTrend", payload),
-        onCacheWrite: () => setCacheRefreshToken((value) => value + 1),
+        cachePolicy: runtimeMode === "demo" ? "none" : "persistent",
+        sendExamDetail: <TData,>(payload: ExamDetailPayload) => runtimeMode === "demo"
+          ? getDemoExamDetail<TData>(payload)
+          : sendMessageToSelectedTab<ExamDetailPayload, TData>("getExamDetail", payload),
+        sendSubjectLevelTrend: <TData,>(payload: SubjectLevelTrendPayload) => runtimeMode === "demo"
+          ? getDemoSubjectLevelTrend<TData>(payload)
+          : sendMessageToSelectedTab<SubjectLevelTrendPayload, TData>("getSubjectLevelTrend", payload),
+        onCacheWrite: runtimeMode === "live" ? () => setCacheRefreshToken((value) => value + 1) : undefined,
         onProgress: (completed, total) =>
           setLoadingState({
             kind: "loading",
@@ -743,6 +886,7 @@ function App() {
     payload: ExamDetailPayload,
     forceRefresh: boolean
   ): Promise<TData> {
+    if (runtimeMode === "demo") return getDemoExamDetail<TData>(payload);
     const cacheKey = buildScoreCacheKey({
       academicYearKey: exam.academicYearKey,
       examId: exam.examId,
@@ -781,6 +925,7 @@ function App() {
     payload: SubjectLevelTrendPayload,
     forceRefresh: boolean
   ): Promise<LevelTrendResponse> {
+    if (runtimeMode === "demo") return getDemoSubjectLevelTrend<LevelTrendResponse>(payload);
     const cacheKey = buildScoreCacheKey({
       academicYearKey: exam.academicYearKey,
       examId: exam.examId,
@@ -958,7 +1103,7 @@ function App() {
     const now = new Date().toISOString();
     const existing = activeAnalysisPlanId ? analysisPlans.find((plan) => plan.id === activeAnalysisPlanId) : null;
     const plan: AnalysisPlan = {
-      id: existing?.id ?? crypto.randomUUID(),
+      id: existing?.id ?? (runtimeMode === "demo" ? `demo-plan-${crypto.randomUUID()}` : crypto.randomUUID()),
       name: existing?.name ?? `成绩分析 ${new Date().toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}`,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -971,6 +1116,13 @@ function App() {
       insightSettings: getPlanInsightSettings(analysisSettings),
       note: analysisNote
     };
+    if (runtimeMode === "demo") {
+      setAnalysisPlans((current) => [plan, ...current.filter((item) => item.id !== plan.id)]);
+      setActiveAnalysisPlanId(plan.id);
+      setSelectedAnalysisPlanIds(new Set([plan.id]));
+      setStatusMessage(`已保存演示分析方案：${plan.name}；仅本次演示有效。`);
+      return;
+    }
     await saveAnalysisPlan(plan);
     setActiveAnalysisPlanId(plan.id);
     setSelectedAnalysisPlanIds(new Set([plan.id]));
@@ -1001,7 +1153,7 @@ function App() {
     const nextInsightSettings = { ...basePlan.insightSettings, classificationRules: analysisSettings.classificationRules ?? [] };
     setAnalysisSettings(nextInsightSettings);
     setAnalysisNote(mergeAnalysisNotes(plans));
-    await writeAnalysisInsightSettings(nextInsightSettings);
+    if (runtimeMode === "live") await writeAnalysisInsightSettings(nextInsightSettings);
     setStatusMessage(`已加载 ${plans.length} 个分析方案。`);
   }
 
@@ -1009,7 +1161,7 @@ function App() {
     const now = new Date().toISOString();
     const existing = selectedAnalysisTemplateId ? analysisTemplates.find((template) => template.id === selectedAnalysisTemplateId) : null;
     const template: AnalysisTemplate = {
-      id: existing?.id ?? crypto.randomUUID(),
+      id: existing?.id ?? (runtimeMode === "demo" ? `demo-template-${crypto.randomUUID()}` : crypto.randomUUID()),
       name: existing?.name ?? `分析模板 ${new Date().toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}`,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -1020,6 +1172,12 @@ function App() {
       target: analysisTarget,
       insightSettings: getPlanInsightSettings(analysisSettings)
     };
+    if (runtimeMode === "demo") {
+      setAnalysisTemplates((current) => [template, ...current.filter((item) => item.id !== template.id)]);
+      setSelectedAnalysisTemplateId(template.id);
+      setStatusMessage(`已保存演示分析模板：${template.name}；仅本次演示有效。`);
+      return;
+    }
     await saveAnalysisTemplate(template);
     setSelectedAnalysisTemplateId(template.id);
     await refreshLocalData();
@@ -1040,7 +1198,7 @@ function App() {
     setAnalysisMetric(template.metric);
     setAnalysisTarget(template.target);
     setAnalysisSettings(nextInsightSettings);
-    await writeAnalysisInsightSettings(nextInsightSettings);
+    if (runtimeMode === "live") await writeAnalysisInsightSettings(nextInsightSettings);
     const typeFilters = new Set(template.selectedExamTypes);
     const matchesTemplate = (exam: ExamListItem) => typeFilters.size === 0 || typeFilters.has(exam.examType);
     const matchedExams = allExamItems.filter(matchesTemplate);
@@ -1054,6 +1212,12 @@ function App() {
 
   async function deleteSavedAnalysisTemplate(templateId: string) {
     const template = analysisTemplates.find((item) => item.id === templateId);
+    if (runtimeMode === "demo") {
+      setAnalysisTemplates((current) => current.filter((item) => item.id !== templateId));
+      if (selectedAnalysisTemplateId === templateId) setSelectedAnalysisTemplateId(null);
+      setStatusMessage(`已删除演示分析模板：${template?.name ?? "未命名模板"}；仅本次演示有效。`);
+      return;
+    }
     await deleteAnalysisTemplate(templateId);
     if (selectedAnalysisTemplateId === templateId) {
       setSelectedAnalysisTemplateId(null);
@@ -1091,6 +1255,10 @@ function App() {
   }
 
   async function hydrateCacheHealth() {
+    if (runtimeMode === "demo") {
+      setStatusMessage("演示模式不读取或补全真实缓存。");
+      return;
+    }
     const targets = cacheHealth.missingRank.concat(cacheHealth.missingSubjectTrend).concat(cacheHealth.missingMetadata);
     const deduped = Array.from(new Map(targets.map((record) => [getCachedExamIdentity(record), record])).values());
     if (deduped.length === 0) {
@@ -1138,6 +1306,17 @@ function App() {
 
   async function deleteSavedAnalysisPlan(planId: string) {
     const plan = analysisPlans.find((item) => item.id === planId);
+    if (runtimeMode === "demo") {
+      setAnalysisPlans((current) => current.filter((item) => item.id !== planId));
+      if (activeAnalysisPlanId === planId) setActiveAnalysisPlanId(null);
+      setSelectedAnalysisPlanIds((current) => {
+        const next = new Set(current);
+        next.delete(planId);
+        return next;
+      });
+      setStatusMessage(`已删除演示分析方案：${plan?.name ?? "未命名方案"}；仅本次演示有效。`);
+      return;
+    }
     await deleteAnalysisPlan(planId);
     if (activeAnalysisPlanId === planId) {
       setActiveAnalysisPlanId(null);
@@ -1153,7 +1332,7 @@ function App() {
 
   async function updateExamNote(examKey: string, note: string) {
     const next: ExamNote = { examKey, note, updatedAt: new Date().toISOString() };
-    await writeExamNote(next);
+    if (runtimeMode === "live") await writeExamNote(next);
     setExamNotes((current) => {
       const updated = { ...current };
       if (note.trim()) {
@@ -1166,18 +1345,26 @@ function App() {
   }
 
   async function updateAnalysisSettings(next: AnalysisInsightSettings) {
-    await writeAnalysisInsightSettings(next);
+    if (runtimeMode === "live") await writeAnalysisInsightSettings(next);
     setAnalysisSettings(next);
-    setStatusMessage("已更新异常标记阈值。");
+    setStatusMessage(runtimeMode === "demo" ? "已更新演示分析设置；仅本次演示有效。" : "已更新异常标记阈值。");
   }
 
   async function clearCacheByFilter(filter: { academicYearKey?: string; academicYearName?: string; examType?: string }) {
+    if (runtimeMode === "demo") {
+      setStatusMessage("演示模式与真实缓存完全隔离，不会执行清理操作。");
+      return;
+    }
     const deleted = await deleteScoreCacheRecords(filter);
     setCacheRefreshToken((value) => value + 1);
     setStatusMessage(`已清理 ${deleted} 条成绩缓存。`);
   }
 
   async function exportDataJson() {
+    if (runtimeMode === "demo") {
+      setStatusMessage("演示模式不会导出或读取真实本地数据。");
+      return;
+    }
     const data = await exportLocalData();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -1194,10 +1381,12 @@ function App() {
       <NavigationRail
         currentView={mainView}
         onNavigate={setMainView}
-        connectionReady={connectionReady}
+        connectionReady={workspaceReady}
+        isDemoMode={runtimeMode === "demo"}
       />
       <main className="app-main" ref={appMainRef}>
         <div className="app-content">
+          {runtimeMode === "demo" ? <DemoModeBanner onExit={() => void exitDemoMode()} /> : null}
           <PageHeader {...getPageMeta(mainView)} />
           <StatusAlert message={statusMessage} floating onDismiss={() => setStatusMessage("")} />
           {mainView === "connection" ? (
@@ -1207,13 +1396,15 @@ function App() {
               profile={connectionProfile}
               status={connectionStatus}
               connecting={connecting}
+              isDemoMode={runtimeMode === "demo"}
               onOpenZhixue={() => void openZhixue()}
               onRefreshTabs={() => void checkZhixueTabs()}
               onSelectTab={selectConnectionTab}
               onConnect={() => void connectSelectedTab()}
+              onEnterDemo={() => void enterDemoMode()}
             />
           ) : null}
-          {mainView === "exams" && (connectionReady || examViewMode === "examDetail") ? (
+          {mainView === "exams" && (workspaceReady || examViewMode === "examDetail") ? (
             <ExamWorkspace
               academicYears={academicYears}
               currentPage={currentPage}
@@ -1254,7 +1445,7 @@ function App() {
               onYearSelectionChange={setSelectedAcademicYears}
             />
           ) : null}
-          {mainView === "exams" && !connectionReady && examViewMode !== "examDetail" ? <RequiresConnection onConnect={() => setMainView("connection")} /> : null}
+          {mainView === "exams" && !workspaceReady && examViewMode !== "examDetail" ? <RequiresConnection onConnect={() => setMainView("connection")} /> : null}
           {mainView === "analysis" ? (
             <AnalysisView
               analysisState={{ ...analysisState, records: visibleAnalysisRecords }}
@@ -1274,6 +1465,7 @@ function App() {
               selectedCachedExamKeys={selectedCachedExamKeys}
               selectedExamCount={selectedExamCount}
               visibleSubjectNames={visibleSubjectNames}
+              isDemoMode={runtimeMode === "demo"}
               onAnalysisMetricChange={setAnalysisMetric}
               onAnalysisNoteChange={setAnalysisNote}
               onAnalysisTargetChange={setAnalysisTarget}
@@ -1301,14 +1493,15 @@ function App() {
               onVisibleSubjectToggle={(subjectName) => setVisibleSubjectNames((current) => toggleSetValue(current, subjectName))}
             />
           ) : null}
-          {mainView === "homework" && connectionReady ? (
+          {mainView === "homework" && workspaceReady ? (
             <HomeworkView
-              onLoadSubjects={() => sendHomeworkMessage<undefined, HomeworkSubject[]>("getHomeworkSubjects")}
-              onLoadList={(payload) => sendHomeworkMessage<HomeworkListPayload, HomeworkListPage>("getHomeworkList", payload)}
-              onLoadResources={(homework) => sendHomeworkMessage<HomeworkResourcesPayload, HomeworkResource[]>("getHomeworkResources", { homework })}
+              isDemoMode={runtimeMode === "demo"}
+              onLoadSubjects={() => runtimeMode === "demo" ? Promise.resolve(demoHomeworkSubjects) : sendHomeworkMessage<undefined, HomeworkSubject[]>("getHomeworkSubjects")}
+              onLoadList={(payload) => runtimeMode === "demo" ? getDemoHomeworkList(payload) : sendHomeworkMessage<HomeworkListPayload, HomeworkListPage>("getHomeworkList", payload)}
+              onLoadResources={(homework) => runtimeMode === "demo" ? getDemoHomeworkResources(homework) : sendHomeworkMessage<HomeworkResourcesPayload, HomeworkResource[]>("getHomeworkResources", { homework })}
             />
           ) : null}
-          {mainView === "homework" && !connectionReady ? <RequiresConnection onConnect={() => setMainView("connection")} /> : null}
+          {mainView === "homework" && !workspaceReady ? <RequiresConnection onConnect={() => setMainView("connection")} /> : null}
           {mainView === "subject" ? (
             <SubjectDetailPage
               detail={selectedSubjectDetail}
@@ -1328,13 +1521,15 @@ function App() {
               onExportData={() => void exportDataJson()}
               onHydrateCache={() => void hydrateCacheHealth()}
               onOpenRules={() => setMainView("rules")}
+              isDemoMode={runtimeMode === "demo"}
+              onEnterDemo={() => void enterDemoMode()}
               onChange={updateSettings}
             />
           ) : null}
           {mainView === "rules" ? (
             <RuleSettingsView
               rules={analysisSettings.classificationRules ?? []}
-              examTypes={cacheStats?.examTypes ?? []}
+              examTypes={runtimeMode === "demo" ? Array.from(new Set(demoExams.map((exam) => exam.examType))) : cacheStats?.examTypes ?? []}
               exams={allExamItems}
               cachedExams={cachedExamItems}
               onBack={() => setMainView("settings")}
@@ -1349,14 +1544,29 @@ function App() {
   );
 }
 
+function DemoModeBanner({ onExit }: { onExit: () => void }) {
+  return (
+    <section className="demo-mode-banner" aria-label="演示模式提示">
+      <span className="demo-mode-banner__icon" aria-hidden="true"><MaterialIcon name="science" /></span>
+      <div className="demo-mode-banner__body">
+        <strong>演示模式</strong>
+        <span>当前内容均为虚拟数据，不会访问智学网或真实缓存。</span>
+      </div>
+      <md-outlined-button onClick={onExit}>退出演示</md-outlined-button>
+    </section>
+  );
+}
+
 function NavigationRail({
   currentView,
   onNavigate,
-  connectionReady
+  connectionReady,
+  isDemoMode
 }: {
   currentView: MainView;
   onNavigate: (view: MainView) => void;
   connectionReady: boolean;
+  isDemoMode: boolean;
 }) {
   const items = [
     { view: "connection" as const, label: "连接", icon: "link" },
@@ -1390,11 +1600,11 @@ function NavigationRail({
         <div className="app-drawer__footer" aria-label="快捷入口">
           <span
             className="rail-action"
-            data-status={connectionReady ? "ready" : "offline"}
-            aria-label={connectionReady ? "智学网页面已连接" : "等待智学网页面"}
-            title={connectionReady ? "智学网页面已连接" : "等待智学网页面"}
+            data-status={isDemoMode ? "demo" : connectionReady ? "ready" : "offline"}
+            aria-label={isDemoMode ? "当前处于演示模式" : connectionReady ? "智学网页面已连接" : "等待智学网页面"}
+            title={isDemoMode ? "演示模式" : connectionReady ? "智学网页面已连接" : "等待智学网页面"}
           >
-            <MaterialIcon name={connectionReady ? "cloud_done" : "cloud_off"} />
+            <MaterialIcon name={isDemoMode ? "science" : connectionReady ? "cloud_done" : "cloud_off"} />
           </span>
           <button
             type="button"
@@ -1412,9 +1622,36 @@ function NavigationRail({
   );
 }
 
-const appVersion = "2.1.0";
+const appVersion = "2.2.0";
 
 const changelogEntries = [
+  {
+    title: "v2.2.0",
+    label: "公开演示与界面修复",
+    groups: [
+      {
+        title: "新增",
+        items: [
+          "新增公开演示模式，无需登录即可体验考试详情、成绩趋势、分类规则和作业资源。",
+          "内置两学年、十二场虚拟考试和示例作业；预览与下载只使用扩展内置演示文件。"
+        ]
+      },
+      {
+        title: "优化",
+        items: [
+          "演示方案、模板、备注、规则和分析设置仅在当前页面中生效，与真实缓存完全隔离。",
+          "调整六科成绩基线与波动幅度，在多场考试中展示理科成绩和排名异常。"
+        ]
+      },
+      {
+        title: "修复",
+        items: [
+          "对话框使用全屏遮罩，修复 HCT 颜色选择和作业预览遮罩覆盖不完整的问题。",
+          "修复 Pride Color 面板被分析设置覆盖，以及作业列表进入箭头换行的问题。"
+        ]
+      }
+    ]
+  },
   {
     title: "v2.1.0",
     label: "连接、作业资源与分析体验更新",
@@ -2093,6 +2330,7 @@ function AnalysisView({
   selectedCachedExamKeys,
   selectedExamCount,
   visibleSubjectNames,
+  isDemoMode,
   onAnalysisMetricChange,
   onAnalysisNoteChange,
   onAnalysisTargetChange,
@@ -2132,6 +2370,7 @@ function AnalysisView({
   selectedCachedExamKeys: Set<string>;
   selectedExamCount: number;
   visibleSubjectNames: Set<string>;
+  isDemoMode: boolean;
   onAnalysisMetricChange: (metric: AnalysisMetric) => void;
   onAnalysisNoteChange: (note: string) => void;
   onAnalysisTargetChange: (target: AnalysisTarget) => void;
@@ -2170,7 +2409,7 @@ function AnalysisView({
   const labels = buildAnalysisLabels(records);
   const totalTarget = analysisTarget.metric === analysisMetric ? analysisTarget.total : null;
   const subjectTargets = analysisTarget.metric === analysisMetric ? (analysisTarget.subjects ?? {}) : {};
-  const cacheSelector = (
+  const cacheSelector = isDemoMode ? null : (
     <CachedExamSelector
       records={cachedReportMainRecords}
       classificationRules={classificationRules}
@@ -2206,7 +2445,7 @@ function AnalysisView({
         <section className="md-card empty-card">
           <MaterialIcon name="query_stats" />
           <h2>等待生成成绩分析</h2>
-          <p>先在考试列表中勾选考试，或在上方选择本地缓存成绩。</p>
+          <p>{isDemoMode ? "先在考试列表中勾选演示考试。" : "先在考试列表中勾选考试，或在上方选择本地缓存成绩。"}</p>
           <div className="cluster">
             <md-outlined-button onClick={onGoExams}>去选择考试</md-outlined-button>
             <md-filled-button disabled={selectedExamCount === 0} onClick={onGenerate}>
@@ -2725,6 +2964,8 @@ function SettingsView({
   onExportData,
   onHydrateCache,
   onOpenRules,
+  isDemoMode,
+  onEnterDemo,
   onChange
 }: {
   settings: OwlSettings;
@@ -2736,11 +2977,21 @@ function SettingsView({
   onExportData: () => void;
   onHydrateCache: () => void;
   onOpenRules: () => void;
+  isDemoMode: boolean;
+  onEnterDemo: () => void;
   onChange: (next: Partial<OwlSettings>) => void;
 }) {
   const unhealthyCount = cacheHealth.missingRank.length + cacheHealth.missingSubjectTrend.length + cacheHealth.missingMetadata.length;
   return (
     <div className="stack-lg">
+      <section className="md-card demo-entry-card">
+        <div>
+          <p className="breadcrumb">Demo</p>
+          <h2 className="section-title">{isDemoMode ? "演示数据已隔离" : "体验公开演示模式"}</h2>
+          <p className="helper-text">{isDemoMode ? "分析方案、模板、备注和规则只保留在当前演示中；真实 IndexedDB 不会被读取或改写。" : "使用固定虚拟数据体验趋势分析、考试详情和作业资源，不需要连接智学网。"}</p>
+        </div>
+        {!isDemoMode ? <md-outlined-button onClick={onEnterDemo}>体验演示</md-outlined-button> : <span className="badge">仅本次有效</span>}
+      </section>
       <section className="md-card stack">
         <div>
           <p className="breadcrumb">Theme</p>
@@ -2773,7 +3024,7 @@ function SettingsView({
           <md-filled-button onClick={onOpenRules}>配置分类规则</md-filled-button>
         </div>
       </section>
-      <section className="md-card stack">
+      {!isDemoMode ? <><section className="md-card stack">
         <div className="spread">
           <div>
             <p className="breadcrumb">Cache</p>
@@ -2820,7 +3071,7 @@ function SettingsView({
           <MetricCard label="缺少科目趋势" value={String(cacheHealth.missingSubjectTrend.length)} detail={formatHealthExamples(cacheHealth.missingSubjectTrend)} />
           <MetricCard label="缺少元信息" value={String(cacheHealth.missingMetadata.length)} detail={formatHealthExamples(cacheHealth.missingMetadata)} />
         </div>
-      </section>
+      </section></> : null}
     </div>
   );
 }
@@ -3343,37 +3594,40 @@ function ThemePicker({ settings, onChange }: { settings: OwlSettings; onChange: 
         </md-filled-select>
       </div>
 
-      <md-dialog class="hct-dialog" open={customDialogOpen} onClosed={() => setCustomDialogOpen(false)} onClose={() => setCustomDialogOpen(false)} onCancel={() => setCustomDialogOpen(false)}>
-        <div slot="headline">HCT 颜色选择</div>
-        <div slot="content" className="hct-color-dialog">
-          <div className="hct-color-preview" style={{ background: customDraftColor.hex }} aria-hidden="true" />
-          <div className="hct-field-grid">
-            <label className="hex-field" data-error={customDraftHexIsInvalid}>
-              <span>HEX</span>
-              <div className="hex-input-shell">
-                <span aria-hidden="true">#</span>
-                <input aria-invalid={customDraftHexIsInvalid} aria-label="HEX" value={customDraftColor.hex.replace(/^#/, "")} maxLength={6} onInput={(event) => updateDraftHex((event.currentTarget as HTMLInputElement).value)} />
-              </div>
-              {customDraftHexIsInvalid ? <small>请输入 #RRGGBB 格式</small> : null}
-            </label>
-            <div className="rgb-field" aria-label="RGB">
-              <span>RGB</span>
-              <div className="rgb-inputs">
-                <input aria-label="Red" inputMode="numeric" maxLength={3} value={customDraftRgb.r} onInput={(event) => updateDraftRgb("r", (event.currentTarget as HTMLInputElement).value)} />
-                <input aria-label="Green" inputMode="numeric" maxLength={3} value={customDraftRgb.g} onInput={(event) => updateDraftRgb("g", (event.currentTarget as HTMLInputElement).value)} />
-                <input aria-label="Blue" inputMode="numeric" maxLength={3} value={customDraftRgb.b} onInput={(event) => updateDraftRgb("b", (event.currentTarget as HTMLInputElement).value)} />
+      {createPortal(
+        <md-dialog className="app-dialog hct-dialog" open={customDialogOpen} onClosed={() => setCustomDialogOpen(false)} onClose={() => setCustomDialogOpen(false)} onCancel={() => closeCustomDialog(false)}>
+          <div slot="headline">HCT 颜色选择</div>
+          <div slot="content" className="hct-color-dialog">
+            <div className="hct-color-preview" style={{ background: customDraftColor.hex }} aria-hidden="true" />
+            <div className="hct-field-grid">
+              <label className="hex-field" data-error={customDraftHexIsInvalid}>
+                <span>HEX</span>
+                <div className="hex-input-shell">
+                  <span aria-hidden="true">#</span>
+                  <input aria-invalid={customDraftHexIsInvalid} aria-label="HEX" value={customDraftColor.hex.replace(/^#/, "")} maxLength={6} onInput={(event) => updateDraftHex((event.currentTarget as HTMLInputElement).value)} />
+                </div>
+                {customDraftHexIsInvalid ? <small>请输入 #RRGGBB 格式</small> : null}
+              </label>
+              <div className="rgb-field" aria-label="RGB">
+                <span>RGB</span>
+                <div className="rgb-inputs">
+                  <input aria-label="Red" inputMode="numeric" maxLength={3} value={customDraftRgb.r} onInput={(event) => updateDraftRgb("r", (event.currentTarget as HTMLInputElement).value)} />
+                  <input aria-label="Green" inputMode="numeric" maxLength={3} value={customDraftRgb.g} onInput={(event) => updateDraftRgb("g", (event.currentTarget as HTMLInputElement).value)} />
+                  <input aria-label="Blue" inputMode="numeric" maxLength={3} value={customDraftRgb.b} onInput={(event) => updateDraftRgb("b", (event.currentTarget as HTMLInputElement).value)} />
+                </div>
               </div>
             </div>
+            <HctSlider label="Hue" min={0} max={360} value={customDraftColor.hue} gradient={hctGradients.hue} onChange={(hue) => updateDraftHct({ hue })} />
+            <HctSlider label="Chroma" min={0} max={150} value={customDraftColor.chroma} gradient={hctGradients.chroma} onChange={(chroma) => updateDraftHct({ chroma })} />
+            <HctSlider label="Tone" min={0} max={100} value={customDraftColor.tone} gradient={hctGradients.tone} onChange={(tone) => updateDraftHct({ tone })} />
           </div>
-          <HctSlider label="Hue" min={0} max={360} value={customDraftColor.hue} gradient={hctGradients.hue} onChange={(hue) => updateDraftHct({ hue })} />
-          <HctSlider label="Chroma" min={0} max={150} value={customDraftColor.chroma} gradient={hctGradients.chroma} onChange={(chroma) => updateDraftHct({ chroma })} />
-          <HctSlider label="Tone" min={0} max={100} value={customDraftColor.tone} gradient={hctGradients.tone} onChange={(tone) => updateDraftHct({ tone })} />
-        </div>
-        <div slot="actions">
-          <md-text-button onClick={() => closeCustomDialog(false)}>取消</md-text-button>
-          <md-filled-button onClick={() => closeCustomDialog(true)}>应用</md-filled-button>
-        </div>
-      </md-dialog>
+          <div slot="actions">
+            <md-text-button onClick={() => closeCustomDialog(false)}>取消</md-text-button>
+            <md-filled-button onClick={() => closeCustomDialog(true)}>应用</md-filled-button>
+          </div>
+        </md-dialog>,
+        document.body
+      )}
     </div>
   );
 }

@@ -30,6 +30,7 @@ export type AnalysisSource =
 
 export type AnalysisPipelineOptions = {
   forceRefresh: boolean;
+  cachePolicy?: "persistent" | "none";
   sendExamDetail: <TData>(payload: ExamDetailPayload) => Promise<TData>;
   sendSubjectLevelTrend: <TData>(payload: SubjectLevelTrendPayload) => Promise<TData>;
   onProgress?: (completed: number, total: number) => void;
@@ -130,7 +131,7 @@ async function getReportMain(
     examId: exam.examId,
     detailType: "getReportMain"
   });
-  const cached = !options.forceRefresh ? await readScoreCache<ReportMainResponse>(cacheKey) : null;
+  const cached = options.cachePolicy !== "none" && !options.forceRefresh ? await readScoreCache<ReportMainResponse>(cacheKey) : null;
   if (cached) return cached.data;
 
   const data = await options.sendExamDetail<ReportMainResponse>({
@@ -138,8 +139,10 @@ async function getReportMain(
     examDetailType: "getReportMain",
     academicYear: exam.academicYear
   });
-  await writeDetailCache(cacheKey, exam, "getReportMain", data);
-  options.onCacheWrite?.();
+  if (options.cachePolicy !== "none") {
+    await writeDetailCache(cacheKey, exam, "getReportMain", data);
+    options.onCacheWrite?.();
+  }
   return data;
 }
 
@@ -206,7 +209,7 @@ async function getLevelTrend(exam: AnalysisExamSourceItem, options: AnalysisPipe
     examId: exam.examId,
     detailType: "getLevelTrend"
   });
-  const cached = !options.forceRefresh ? await readScoreCache<LevelTrendResponse>(cacheKey) : null;
+  const cached = options.cachePolicy !== "none" && !options.forceRefresh ? await readScoreCache<LevelTrendResponse>(cacheKey) : null;
   if (cached) return cached.data;
 
   const data = await options.sendExamDetail<LevelTrendResponse>({
@@ -214,8 +217,10 @@ async function getLevelTrend(exam: AnalysisExamSourceItem, options: AnalysisPipe
     examDetailType: "getLevelTrend",
     academicYear: exam.academicYear
   });
-  await writeDetailCache(cacheKey, exam, "getLevelTrend", data);
-  options.onCacheWrite?.();
+  if (options.cachePolicy !== "none") {
+    await writeDetailCache(cacheKey, exam, "getLevelTrend", data);
+    options.onCacheWrite?.();
+  }
   return data;
 }
 
@@ -230,7 +235,7 @@ async function getSubjectTrend(
     detailType: "getSubjectLevelTrend",
     paperId
   });
-  const cached = !options.forceRefresh ? await readScoreCache<LevelTrendResponse>(cacheKey) : null;
+  const cached = options.cachePolicy !== "none" && !options.forceRefresh ? await readScoreCache<LevelTrendResponse>(cacheKey) : null;
   if (cached) return cached.data;
 
   const data = await options.sendSubjectLevelTrend<LevelTrendResponse>({
@@ -238,8 +243,10 @@ async function getSubjectTrend(
     paperId,
     academicYear: exam.academicYear
   });
-  await writeDetailCache(cacheKey, exam, "getSubjectLevelTrend", data, paperId);
-  options.onCacheWrite?.();
+  if (options.cachePolicy !== "none") {
+    await writeDetailCache(cacheKey, exam, "getSubjectLevelTrend", data, paperId);
+    options.onCacheWrite?.();
+  }
   return data;
 }
 
