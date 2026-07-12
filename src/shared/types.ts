@@ -3,6 +3,65 @@ export type ApiResponse<T = unknown> = {
   [key: string]: unknown;
 };
 
+export type ConnectionProfile = {
+  id: string;
+  code?: string;
+  loginName: string;
+  name: string;
+  avatar?: string;
+  school: {
+    id?: string;
+    name: string;
+  };
+  grade?: {
+    code?: string;
+    name: string;
+  };
+  class: {
+    id?: string;
+    name: string;
+  };
+};
+
+export type HomeworkStatus = 0 | 1;
+
+export type HomeworkSubject = {
+  code: string;
+  name: string;
+};
+
+export type HomeworkItem = {
+  id: string;
+  studentHomeworkId: string;
+  classId?: string;
+  title: string;
+  subjectCode: string;
+  subjectName: string;
+  typeCode: number;
+  typeName: string;
+  beginTime: number;
+  endTime: number;
+  createTime: number;
+  status: HomeworkStatus;
+  allowMakeup: boolean;
+};
+
+export type HomeworkListPage = {
+  items: HomeworkItem[];
+  hasMore: boolean;
+  nextCreateTime: number | null;
+};
+
+export type HomeworkResourceCategory = "题目" | "答案" | "提交" | "说明";
+
+export type HomeworkResource = {
+  id: string;
+  name: string;
+  category: HomeworkResourceCategory;
+  url?: string;
+  text?: string;
+};
+
 export type AcademicYearListResponse = ApiResponse<AcademicYearItem[]>;
 
 export type AcademicYearItem = {

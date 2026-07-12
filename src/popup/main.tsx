@@ -86,25 +86,35 @@ import {
 } from "../shared/analysis-insights";
 import { formatDate, getExamTypeName } from "../shared/format";
 import {
+  OWL_BACKGROUND_HEALTH_CHANNEL,
   type AcademicYear,
+  type BackgroundHealthResponse,
   type ExamDetailPayload,
   type ExamListPayload,
   type ExtensionRequest,
   type ExtensionResponse,
+  type HomeworkListPayload,
+  type HomeworkResourcesPayload,
   type SubjectLevelTrendPayload
 } from "../shared/protocol";
 import { getClassRankInfo, getSubjectClassRankInfo } from "../shared/rank";
 import { computeTotalFromSubjects } from "../shared/score";
 import type {
   AcademicYearListResponse,
+  ConnectionProfile,
   ExamDetailViewModel,
   ExamItem,
   ExamListResponse,
   LevelTrendResponse,
+  HomeworkListPage,
+  HomeworkResource,
+  HomeworkSubject,
   PaperScore,
   ReportMainResponse
 } from "../shared/types";
 import { MaterialIcon } from "./icons";
+import { ConnectionView } from "./connection";
+import { HomeworkView } from "./homework";
 import { applyStoredTheme, applyTheme } from "./theme";
 import {
   customThemePresetId,
@@ -128,7 +138,8 @@ type LoadingState =
   | { kind: "error"; message: string };
 
 type ExamViewMode = "ready" | "selectYear" | "examList" | "examDetail";
-type MainView = "exams" | "analysis" | "subject" | "settings" | "rules" | "changelog";
+type MainView = "connection" | "exams" | "analysis" | "homework" | "subject" | "settings" | "rules" | "changelog";
+const SNACKBAR_DURATION_MS = 6000;
 
 type ExamListItem = ExamItem & {
   academicYear: AcademicYear;
@@ -160,12 +171,18 @@ const examsPerPage = 10;
 
 function App() {
   const appMainRef = useRef<HTMLElement | null>(null);
+  const selectedTabIdRef = useRef<number | null>(null);
+  const connectedTabIdRef = useRef<number | null>(null);
+  const connectingTabIdRef = useRef<number | null>(null);
+  const connectionAttemptRef = useRef(0);
   const [settings, setSettings] = useState<OwlSettings>(() => applyStoredTheme());
-  const [mainView, setMainView] = useState<MainView>("exams");
+  const [mainView, setMainView] = useState<MainView>("connection");
   const [examViewMode, setExamViewMode] = useState<ExamViewMode>("ready");
   const [connectionStatus, setConnectionStatus] = useState("正在检查智学网页面...");
   const [availableTabs, setAvailableTabs] = useState<chrome.tabs.Tab[]>([]);
   const [selectedTabId, setSelectedTabId] = useState<number | null>(null);
+  const [connectionProfile, setConnectionProfile] = useState<ConnectionProfile | null>(null);
+  const [connecting, setConnecting] = useState(false);
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [selectedAcademicYears, setSelectedAcademicYears] = useState<AcademicYear[]>([]);
   const [allExamItems, setAllExamItems] = useState<ExamListItem[]>([]);
@@ -173,6 +190,7 @@ function App() {
   const [selectedClassificationLabels, setSelectedClassificationLabels] = useState<Set<string>>(() => new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedExamDetail, setSelectedExamDetail] = useState<ExamDetailViewModel | null>(null);
+  const [examDetailReturnView, setExamDetailReturnView] = useState<"exams" | "analysis">("exams");
   const [selectedExamIds, setSelectedExamIds] = useState<Set<string>>(() => new Set());
   const [selectedExamMap, setSelectedExamMap] = useState<Record<string, ExamListItem>>({});
   const [selectedCachedExamKeys, setSelectedCachedExamKeys] = useState<Set<string>>(() => new Set());
@@ -196,7 +214,7 @@ function App() {
   const [statusMessage, setStatusMessage] = useState("");
   const [loadingState, setLoadingState] = useState<LoadingState>({ kind: "idle" });
 
-  const hasZhixueTabs = availableTabs.length > 0;
+  const connectionReady = Boolean(connectionProfile && selectedTabId);
   const selectedExamCount = selectedExamIds.size + selectedCachedExamKeys.size;
   const visibleAnalysisRecords = useMemo(() => sortByExamTimeAsc(analysisState.records), [analysisState.records]);
   const analysisGroups = useMemo(
@@ -235,25 +253,29 @@ function App() {
   const checkZhixueTabs = useCallback(async () => {
     try {
       const tabs = await chrome.tabs.query({});
-      const zhixueTabs = tabs.filter((tab) => tab.url?.includes("zhixue.com") && tab.id);
+      const zhixueTabs = tabs.filter((tab) => tab.id && isConnectableZhixueTab(tab));
 
       setAvailableTabs(zhixueTabs);
 
       if (zhixueTabs.length === 0) {
+        selectedTabIdRef.current = null;
+        connectedTabIdRef.current = null;
         setSelectedTabId(null);
+        setConnectionProfile(null);
         setConnectionStatus("未找到智学网页面");
         setExamViewMode((current) => (current === "examDetail" || current === "examList" ? current : "ready"));
         return;
       }
 
-      setConnectionStatus(`找到 ${zhixueTabs.length} 个智学网页面`);
-      setSelectedTabId((current) => {
-        if (current && zhixueTabs.some((tab) => tab.id === current)) {
-          return current;
-        }
-
-        return zhixueTabs[0].id ?? null;
-      });
+      const candidate = zhixueTabs.find((tab) => tab.id === selectedTabIdRef.current)
+        ?? zhixueTabs.find((tab) => tab.active)
+        ?? zhixueTabs[0];
+      const candidateId = candidate.id ?? null;
+      selectedTabIdRef.current = candidateId;
+      setSelectedTabId(candidateId);
+      if (candidateId && connectedTabIdRef.current !== candidateId) {
+        await connectTab(candidateId, true);
+      }
     } catch (error) {
       setConnectionStatus(`检查页面失败: ${getErrorMessage(error)}`);
     }
@@ -262,7 +284,22 @@ function App() {
   useEffect(() => {
     void checkZhixueTabs();
     const intervalId = window.setInterval(() => void checkZhixueTabs(), 60000);
-    return () => window.clearInterval(intervalId);
+    const handleTabRemoved = (tabId: number) => {
+      if (tabId === selectedTabIdRef.current || tabId === connectedTabIdRef.current) void checkZhixueTabs();
+    };
+    const handleTabUpdated = (tabId: number, changeInfo: { url?: string }) => {
+      if ((tabId === selectedTabIdRef.current || tabId === connectedTabIdRef.current) && changeInfo.url) void checkZhixueTabs();
+    };
+    const handleTabActivated = () => void checkZhixueTabs();
+    chrome.tabs.onRemoved.addListener(handleTabRemoved);
+    chrome.tabs.onUpdated.addListener(handleTabUpdated);
+    chrome.tabs.onActivated.addListener(handleTabActivated);
+    return () => {
+      window.clearInterval(intervalId);
+      chrome.tabs.onRemoved.removeListener(handleTabRemoved);
+      chrome.tabs.onUpdated.removeListener(handleTabUpdated);
+      chrome.tabs.onActivated.removeListener(handleTabActivated);
+    };
   }, [checkZhixueTabs]);
 
   useEffect(() => {
@@ -272,6 +309,21 @@ function App() {
   useEffect(() => {
     void refreshLocalData();
   }, [cacheRefreshToken]);
+
+  useEffect(() => {
+    if (!statusMessage) return;
+    const timeoutId = window.setTimeout(() => {
+      setStatusMessage((current) => current === statusMessage ? "" : current);
+    }, SNACKBAR_DURATION_MS);
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setStatusMessage("");
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [statusMessage]);
 
   useEffect(() => {
     applyTheme(settings);
@@ -325,7 +377,52 @@ function App() {
 
   async function openZhixue() {
     await chrome.tabs.create({ url: "https://www.zhixue.com" });
-    setConnectionStatus("已打开智学网，请登录后点击重新检测");
+    setConnectionStatus("已打开智学网，请登录后返回连接页重新检测");
+  }
+
+  function selectConnectionTab(tabId: number | null) {
+    selectedTabIdRef.current = tabId;
+    connectedTabIdRef.current = null;
+    setSelectedTabId(tabId);
+    setConnectionProfile(null);
+    setConnectionStatus(tabId ? "正在连接所选页面..." : "请选择一个智学网页面");
+    if (tabId) void connectTab(tabId, true);
+  }
+
+  async function connectSelectedTab() {
+    if (!selectedTabId) {
+      setConnectionStatus("请先选择一个智学网页面");
+      return;
+    }
+    await connectTab(selectedTabId, false);
+  }
+
+  async function connectTab(tabId: number, automatic: boolean) {
+    if (connectingTabIdRef.current === tabId) return;
+    const attempt = connectionAttemptRef.current + 1;
+    connectionAttemptRef.current = attempt;
+    connectingTabIdRef.current = tabId;
+    setConnecting(true);
+    setConnectionStatus(automatic ? "已检测到智学网页面，正在自动连接..." : "正在验证智学网登录状态...");
+    try {
+      const profile = await sendMessageToTab<undefined, ConnectionProfile>(tabId, "connectPage");
+      if (connectionAttemptRef.current !== attempt || selectedTabIdRef.current !== tabId) return;
+      selectedTabIdRef.current = tabId;
+      connectedTabIdRef.current = tabId;
+      setSelectedTabId(tabId);
+      setConnectionProfile(profile);
+      setConnectionStatus(`已连接：${profile.name} · ${profile.school.name}`);
+    } catch (error) {
+      if (connectionAttemptRef.current !== attempt || selectedTabIdRef.current !== tabId) return;
+      connectedTabIdRef.current = null;
+      setConnectionProfile(null);
+      setConnectionStatus(`连接失败：${getErrorMessage(error)}`);
+    } finally {
+      if (connectionAttemptRef.current === attempt) {
+        connectingTabIdRef.current = null;
+        setConnecting(false);
+      }
+    }
   }
 
   async function loadAcademicYears() {
@@ -479,7 +576,8 @@ function App() {
     }
   }
 
-  async function showExamDetail(exam: ExamListItem, forceRefresh = false) {
+  async function showExamDetail(exam: ExamListItem, forceRefresh = false, returnView: "exams" | "analysis" = "exams") {
+    setExamDetailReturnView(returnView);
     setMainView("exams");
     setLoadingState({ kind: "loading", message: "正在获取考试基本信息...", current: 0, total: 3 });
     setSelectedSubjectDetail(null);
@@ -560,6 +658,15 @@ function App() {
     }
   }
 
+  function returnFromExamDetail() {
+    setSelectedExamDetail(null);
+    if (examDetailReturnView === "analysis") {
+      setMainView("analysis");
+      return;
+    }
+    setExamViewMode("examList");
+  }
+
   async function generateAnalysis(forceRefresh = false) {
     const selectedExams = sortByExamTimeAsc(Array.from(selectedExamIds)
       .map((examId) => selectedExamMap[examId])
@@ -605,6 +712,29 @@ function App() {
       failedCount > 0 ? `已生成分析，${failedCount} 场考试详情获取失败。` : `已生成 ${records.length} 场考试的成绩分析。`
     );
     setLoadingState({ kind: "idle" });
+  }
+
+  function closeAnalysis() {
+    setAnalysisState({ records: [], failedCount: 0, generatedAt: null });
+    setLoadingState({ kind: "idle" });
+    setStatusMessage("已关闭本次分析，考试选择和分析设置已保留。");
+  }
+
+  async function openAnalysisExam(record: AnalysisExamRecord) {
+    const identity = getAnalysisRecordIdentity(record);
+    const cached = cachedReportMainRecords.find((item) => getCachedExamIdentity(item) === identity);
+    const exam = cached
+      ? cachedRecordToExamItem(cached)
+      : {
+          examId: record.examId,
+          examName: record.examName,
+          examCreateDateTime: record.examCreateDateTime,
+          examType: record.examType ?? "unknown",
+          academicYear: { name: record.academicYearName ?? "未知学年", beginTime: "", endTime: "" },
+          academicYearKey: record.academicYearKey ?? "unknown-year",
+          academicYearName: record.academicYearName ?? "未知学年"
+        };
+    await showExamDetail(exam, false, "analysis");
   }
 
   async function getCachedExamDetail<TData>(
@@ -710,16 +840,83 @@ function App() {
       throw new Error("请先选择一个智学网页面");
     }
 
+    return sendMessageToTab<TPayload, TData>(selectedTab.id, action, payload);
+  }
+
+  async function sendHomeworkMessage<TPayload, TData>(
+    action: ExtensionRequest<TPayload>["action"],
+    payload?: TPayload
+  ): Promise<TData> {
+    if (!selectedTab?.id) throw new Error("请先选择一个智学网页面");
+    const tabId = selectedTab.id;
+    try {
+      await ensureHomeworkBackground();
+      return await sendMessageToSelectedTab<TPayload, TData>(action, payload);
+    } catch (error) {
+      const errorType = getHomeworkErrorType(error);
+      const stage = errorType === "HOMEWORK_REQUEST_FAILED" ? "content-background-response" : "background-health";
+      logHomeworkError(stage, action, tabId, errorType, error);
+      throw new Error(`${getErrorMessage(error)}。调试信息：模块 homework-background，操作 ${action}，错误类型 ${errorType}`);
+    }
+  }
+
+  async function ensureHomeworkBackground(retried = false): Promise<void> {
+    try {
+      const response = await chrome.runtime.sendMessage<{ channel: typeof OWL_BACKGROUND_HEALTH_CHANNEL }, BackgroundHealthResponse>({
+        channel: OWL_BACKGROUND_HEALTH_CHANNEL
+      });
+      if (!response?.ready) {
+        const diagnostic = new Error(response?.error ?? "后台健康检查未返回有效结果");
+        diagnostic.name = response?.errorCode ?? "CORS_RULE_SETUP_FAILED";
+        throw diagnostic;
+      }
+    } catch (error) {
+      if (isCorsRuleError(error)) throw error;
+      if (!retried && isMissingMessageReceiver(error)) {
+        await new Promise((resolve) => window.setTimeout(resolve, 300));
+        return ensureHomeworkBackground(true);
+      }
+      const diagnostic = new Error(`扩展后台服务未运行，请在扩展管理页重新加载 Owl Insight 后重试（${getErrorMessage(error)}）`);
+      diagnostic.name = "BACKGROUND_UNREACHABLE";
+      throw diagnostic;
+    }
+  }
+
+  async function sendMessageToTab<TPayload, TData>(
+    tabId: number,
+    action: ExtensionRequest<TPayload>["action"],
+    payload?: TPayload,
+    retried = false
+  ): Promise<TData> {
     const request: ExtensionRequest<TPayload> = {
       requestId: crypto.randomUUID(),
       action,
       payload
     };
 
-    const response = await chrome.tabs.sendMessage<ExtensionRequest<TPayload>, ExtensionResponse<TData>>(
-      selectedTab.id,
-      request
-    );
+    let response: ExtensionResponse<TData>;
+    try {
+      response = await chrome.tabs.sendMessage<ExtensionRequest<TPayload>, ExtensionResponse<TData>>(tabId, request);
+    } catch (error) {
+      if (!retried && isMissingMessageReceiver(error)) {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          files: ["assets/content.ts-loader.js"]
+        });
+        await new Promise((resolve) => window.setTimeout(resolve, 200));
+        return sendMessageToTab<TPayload, TData>(tabId, action, payload, true);
+      }
+      throw error;
+    }
+
+    if (!response?.success && !retried && isHomeworkAction(action) && isMissingMessageReceiver(response?.error)) {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ["assets/content.ts-loader.js"]
+      });
+      await new Promise((resolve) => window.setTimeout(resolve, 200));
+      return sendMessageToTab<TPayload, TData>(tabId, action, payload, true);
+    }
 
     if (!response?.success) {
       throw new Error(response?.error ?? "请求失败");
@@ -817,7 +1014,7 @@ function App() {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       selectedExamTypes: Array.from(selectedExamTypes),
-      selectedClassificationLabels: Array.from(selectedClassificationLabels),
+      selectedClassificationLabels: [],
       visibleSubjectNames: Array.from(visibleSubjectNames),
       metric: analysisMetric,
       target: analysisTarget,
@@ -838,14 +1035,21 @@ function App() {
     const nextInsightSettings = { ...template.insightSettings, classificationRules: analysisSettings.classificationRules ?? [] };
     setSelectedAnalysisTemplateId(template.id);
     setSelectedExamTypes(new Set(template.selectedExamTypes));
-    setSelectedClassificationLabels(new Set(template.selectedClassificationLabels));
+    setSelectedClassificationLabels(new Set());
     setVisibleSubjectNames(new Set(template.visibleSubjectNames));
     setAnalysisMetric(template.metric);
     setAnalysisTarget(template.target);
     setAnalysisSettings(nextInsightSettings);
     await writeAnalysisInsightSettings(nextInsightSettings);
+    const typeFilters = new Set(template.selectedExamTypes);
+    const matchesTemplate = (exam: ExamListItem) => typeFilters.size === 0 || typeFilters.has(exam.examType);
+    const matchedExams = allExamItems.filter(matchesTemplate);
+    const matchedCachedRecords = cachedReportMainRecords.filter((record) => matchesTemplate(cachedRecordToExamItem(record)));
+    setSelectedExamIds(new Set(matchedExams.map(getExamSelectionKey)));
+    setSelectedExamMap(Object.fromEntries(matchedExams.map((exam) => [getExamSelectionKey(exam), exam])));
+    setSelectedCachedExamKeys(new Set(matchedCachedRecords.map(getCachedExamIdentity)));
     setCurrentPage(1);
-    setStatusMessage(`已加载分析模板：${template.name}`);
+    setStatusMessage(`已应用分析模板：${template.name}，选择在线考试 ${matchedExams.length} 场、缓存考试 ${matchedCachedRecords.length} 场。`);
   }
 
   async function deleteSavedAnalysisTemplate(templateId: string) {
@@ -884,18 +1088,6 @@ function App() {
       return next;
     });
     setStatusMessage(`${checked ? "已选择" : "已取消"} ${exams.length} 场考试。`);
-  }
-
-  function selectSameClassification() {
-    if (selectedClassificationLabels.size === 0) {
-      setStatusMessage("请先选择一个分类标签。");
-      return;
-    }
-    const rules = analysisSettings.classificationRules ?? [];
-    const exams = allExamItems.filter((exam) =>
-      getExamClassificationLabels(exam, rules).some((label) => selectedClassificationLabels.has(label))
-    );
-    selectExamBatch(exams, true);
   }
 
   async function hydrateCacheHealth() {
@@ -1002,39 +1194,33 @@ function App() {
       <NavigationRail
         currentView={mainView}
         onNavigate={setMainView}
-        connectionReady={hasZhixueTabs}
+        connectionReady={connectionReady}
       />
       <main className="app-main" ref={appMainRef}>
         <div className="app-content">
-          <PageHeader
-            current={mainView === "exams" ? "考试" : mainView === "analysis" ? "分析" : mainView === "subject" ? "单科" : mainView === "rules" ? "规则" : mainView === "changelog" ? "更新" : "设置"}
-            title={mainView === "exams" ? "考试数据" : mainView === "analysis" ? "成绩分析" : mainView === "subject" ? "单科详情" : mainView === "rules" ? "分类规则" : mainView === "changelog" ? "更新记录" : "外观设置"}
-            description={
-              mainView === "exams"
-                ? "连接智学网页面，选择学年，查看考试详情并勾选考试生成分析。"
-                : mainView === "analysis"
-                  ? "基于手动选择的考试生成总分和科目趋势图。"
-                  : mainView === "subject"
-                    ? "查看单科成绩、班级排名和趋势。"
-                    : mainView === "rules"
-                      ? "配置全局考试分类规则，按名称、类型、日期自动归类。"
-                      : mainView === "changelog"
-                        ? "记录 Owl Insight 的主要功能变化和能力边界。"
-                        : "Material Design 3 主题、Pride Color 和 HCT 自定义颜色。"
-            }
-          />
-          <StatusAlert message={statusMessage} />
-          {mainView === "exams" ? (
+          <PageHeader {...getPageMeta(mainView)} />
+          <StatusAlert message={statusMessage} floating onDismiss={() => setStatusMessage("")} />
+          {mainView === "connection" ? (
+            <ConnectionView
+              availableTabs={availableTabs}
+              selectedTabId={selectedTabId}
+              profile={connectionProfile}
+              status={connectionStatus}
+              connecting={connecting}
+              onOpenZhixue={() => void openZhixue()}
+              onRefreshTabs={() => void checkZhixueTabs()}
+              onSelectTab={selectConnectionTab}
+              onConnect={() => void connectSelectedTab()}
+            />
+          ) : null}
+          {mainView === "exams" && (connectionReady || examViewMode === "examDetail") ? (
             <ExamWorkspace
               academicYears={academicYears}
-              availableTabs={availableTabs}
-              connectionStatus={connectionStatus}
               currentPage={currentPage}
               examItems={visibleExamItems}
               filteredExamItems={filteredExamItems}
               examTypeOptions={examTypeOptions}
               classificationOptions={classificationOptions}
-              hasZhixueTabs={hasZhixueTabs}
               loadingState={loadingState}
               pageCount={pageCount}
               classificationRules={analysisSettings.classificationRules ?? []}
@@ -1043,18 +1229,15 @@ function App() {
               selectedExamIds={selectedExamIds}
               selectedExamTypes={selectedExamTypes}
               selectedClassificationLabels={selectedClassificationLabels}
-              selectedTabId={selectedTabId}
               viewMode={examViewMode}
-              onBackToList={() => setExamViewMode("examList")}
-              onCheckTabs={() => void checkZhixueTabs()}
+              onBackToList={returnFromExamDetail}
               onExamClick={(exam) => void showExamDetail(exam)}
               onExamRefresh={(exam) => void showExamDetail(exam, true)}
               onGenerateAnalysis={() => void generateAnalysis()}
               onLoadAcademicYears={() => void loadAcademicYears()}
               onLoadSelectedYears={(years) => void loadSelectedAcademicYears(years)}
-              onOpenZhixue={() => void openZhixue()}
+              onReturnToYearSelection={() => setExamViewMode("selectYear")}
               onPageChange={(page) => void changePage(page)}
-              onSelectTab={setSelectedTabId}
               onSubjectClick={(paper) => {
                 openSubjectDetail(buildSubjectDetailFromExamDetail(selectedExamDetail, paper, analysisState.records));
               }}
@@ -1066,19 +1249,19 @@ function App() {
                 setSelectedClassificationLabels((current) => toggleSetValue(current, label));
                 setCurrentPage(1);
               }}
-              onSelectFilteredExams={() => selectExamBatch(filteredExamItems, true)}
-              onClearFilteredExams={() => selectExamBatch(filteredExamItems, false)}
-              onSelectSameClassification={selectSameClassification}
+              onFilteredExamSelectionChange={(checked) => selectExamBatch(filteredExamItems, checked)}
               onToggleExam={toggleExamSelection}
               onYearSelectionChange={setSelectedAcademicYears}
             />
           ) : null}
+          {mainView === "exams" && !connectionReady && examViewMode !== "examDetail" ? <RequiresConnection onConnect={() => setMainView("connection")} /> : null}
           {mainView === "analysis" ? (
             <AnalysisView
               analysisState={{ ...analysisState, records: visibleAnalysisRecords }}
               analysisMetric={analysisMetric}
               analysisGroups={analysisGroups}
               analysisAnomalies={analysisAnomalies}
+              classificationRules={analysisSettings.classificationRules ?? []}
               analysisTarget={analysisTarget}
               analysisNote={analysisNote}
               analysisPlans={analysisPlans}
@@ -1104,12 +1287,28 @@ function App() {
               onExamNoteChange={(examKey, note) => void updateExamNote(examKey, note)}
               onGenerate={() => void generateAnalysis()}
               onRefresh={() => void generateAnalysis(true)}
+              onClose={closeAnalysis}
+              onOpenExam={(record) => void openAnalysisExam(record)}
               onGoExams={() => setMainView("exams")}
               onCachedExamToggle={(key, checked) => setSelectedCachedExamKeys((current) => setCheckedValue(current, key, checked))}
+              onCachedExamBatchToggle={(keys, checked) => setSelectedCachedExamKeys((current) => {
+                const next = new Set(current);
+                keys.forEach((key) => checked ? next.add(key) : next.delete(key));
+                return next;
+              })}
+              onOpenCachedExam={(record) => void showExamDetail(cachedRecordToExamItem(record), false, "analysis")}
               onSubjectSelect={openSubjectDetail}
               onVisibleSubjectToggle={(subjectName) => setVisibleSubjectNames((current) => toggleSetValue(current, subjectName))}
             />
           ) : null}
+          {mainView === "homework" && connectionReady ? (
+            <HomeworkView
+              onLoadSubjects={() => sendHomeworkMessage<undefined, HomeworkSubject[]>("getHomeworkSubjects")}
+              onLoadList={(payload) => sendHomeworkMessage<HomeworkListPayload, HomeworkListPage>("getHomeworkList", payload)}
+              onLoadResources={(homework) => sendHomeworkMessage<HomeworkResourcesPayload, HomeworkResource[]>("getHomeworkResources", { homework })}
+            />
+          ) : null}
+          {mainView === "homework" && !connectionReady ? <RequiresConnection onConnect={() => setMainView("connection")} /> : null}
           {mainView === "subject" ? (
             <SubjectDetailPage
               detail={selectedSubjectDetail}
@@ -1160,8 +1359,10 @@ function NavigationRail({
   connectionReady: boolean;
 }) {
   const items = [
+    { view: "connection" as const, label: "连接", icon: "link" },
     { view: "exams" as const, label: "考试", icon: "assignment" },
     { view: "analysis" as const, label: "分析", icon: "show_chart" },
+    { view: "homework" as const, label: "作业", icon: "task" },
     { view: "changelog" as const, label: "更新", icon: "history" }
   ];
 
@@ -1211,9 +1412,36 @@ function NavigationRail({
   );
 }
 
-const appVersion = "2.0.0";
+const appVersion = "2.1.0";
 
 const changelogEntries = [
+  {
+    title: "v2.1.0",
+    label: "连接、作业资源与分析体验更新",
+    groups: [
+      {
+        title: "新增",
+        items: [
+          "新增独立连接页，自动检测合适页面，连接后展示学生、学校、年级与班级资料。",
+          "新增作业资源页，支持提交状态、科目筛选、独立详情页、文本与图片预览及批量下载。",
+          "Manifest 增加中文与英文说明，品牌名保持 Owl Insight。"
+        ]
+      },
+      {
+        title: "优化",
+        items: [
+          "登录凭证改为通过当前智学网 Cookie 会话临时获取，不再读取 localStorage。",
+          "修复作业接口在页面代理环境中被浏览器拦截的问题，改由扩展后台在限定主机权限内请求；会话凭证不会进入主 popup、存储或日志。",
+          "作业列表采用整卡进入详情的交互，修复资源复选框事件失效问题，并将进入箭头固定在卡片右侧。",
+          "雷达图移动到单次考试，成绩异常默认收起并按考试精确说明。",
+          "缓存成绩改用考试卡片样式，未连接时也可生成本地分析并打开缓存考试。",
+          "考试与缓存列表使用复选框全选筛选结果，缓存考试支持分类筛选。",
+          "页面提示改为符合 Material 3 的底部 Snackbar，6 秒后自动收起；页脚 Logo 使用无背景 SVG。",
+          "分析模板按考试类型自动选择考试。"
+        ]
+      }
+    ]
+  },
   {
     title: "v2.0.0",
     label: "Vite 重构与分析增强版",
@@ -1222,7 +1450,7 @@ const changelogEntries = [
         title: "架构与界面",
         items: [
           "迁移到 Vite + React + TypeScript + CRXJS 的 Manifest V3 架构。",
-          "使用 Material Design 3、navigation rail、动态主题、Pride Color 和自定义 HCT 颜色。",
+          "使用 Material Design 3、navigation rail、动态主题和自定义 HCT 颜色。",
           "加入 henguren 风格页脚、更新记录和本地优先的数据管理体验。"
         ]
       },
@@ -1282,7 +1510,7 @@ function AppFooter({ onNavigate }: { onNavigate: (view: MainView) => void }) {
       <div className="app-footer__wave" aria-hidden="true" />
       <div className="app-footer__body">
         <section className="app-footer__brand" aria-label="项目信息">
-          <span className="app-footer__mark" aria-hidden="true">O</span>
+          <img className="app-footer__mark" src="/owl-insight-logo.svg" alt="Owl Insight Logo" />
           <div className="stack">
             <div>
               <p className="app-footer__eyebrow">Owl Insight v{appVersion}</p>
@@ -1336,26 +1564,75 @@ function PageHeader({ current, title, description }: { current: string; title: s
   );
 }
 
-function StatusAlert({ message, tone = "info" }: { message?: string; tone?: "info" | "error" }) {
+function getPageMeta(view: MainView): { current: string; title: string; description: string } {
+  const pages: Record<MainView, { current: string; title: string; description: string }> = {
+    connection: { current: "连接", title: "连接智学网", description: "选择一个已登录的智学网页面，验证会话并查看学生资料。" },
+    exams: { current: "考试", title: "考试数据", description: "选择学年，查看考试详情并勾选考试生成分析。" },
+    analysis: { current: "分析", title: "成绩分析", description: "基于手动选择的考试生成总分和科目趋势图。" },
+    homework: { current: "作业", title: "作业资源", description: "按提交状态和科目查找作业，并下载服务端正常返回的资源。" },
+    subject: { current: "单科", title: "单科详情", description: "查看单科成绩、班级排名和趋势。" },
+    rules: { current: "规则", title: "分类规则", description: "配置全局考试分类规则，按名称、类型、日期自动归类。" },
+    changelog: { current: "更新", title: "更新记录", description: "记录 Owl Insight 的主要功能变化和能力边界。" },
+    settings: { current: "设置", title: "外观设置", description: "Material Design 3 主题和 HCT 自定义颜色。" }
+  };
+  return pages[view];
+}
+
+function RequiresConnection({ onConnect }: { onConnect: () => void }) {
+  return (
+    <section className="md-card empty-card">
+      <MaterialIcon name="link_off" />
+      <h2>尚未连接智学网</h2>
+      <p>请先选择一个已登录的智学网页面并完成连接验证。</p>
+      <md-filled-button onClick={onConnect}>前往连接页</md-filled-button>
+    </section>
+  );
+}
+
+function StatusAlert({
+  message,
+  tone = "info",
+  floating = false,
+  onDismiss
+}: {
+  message?: string;
+  tone?: "info" | "error";
+  floating?: boolean;
+  onDismiss?: () => void;
+}) {
+  if (floating) {
+    return (
+      <div className="snackbar-live-region" role={tone === "error" ? "alert" : "status"} aria-live={tone === "error" ? "assertive" : "polite"} aria-atomic="true">
+        {message ? (
+          <div className={`md-card md-card--flat status-alert status-alert--floating ${tone === "error" ? "badge--error" : ""}`} key={message}>
+            <span className="status-alert__message">{message}</span>
+            {onDismiss ? (
+              <button className="status-alert__dismiss" type="button" aria-label="关闭提示" onClick={onDismiss}>
+                <MaterialIcon name="close" />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   if (!message) return null;
 
   return (
     <div className={`md-card md-card--flat status-alert ${tone === "error" ? "badge--error" : ""}`} role={tone === "error" ? "alert" : "status"}>
-      {message}
+      <span className="status-alert__message">{message}</span>
     </div>
   );
 }
 
 function ExamWorkspace(props: {
   academicYears: AcademicYear[];
-  availableTabs: chrome.tabs.Tab[];
-  connectionStatus: string;
   currentPage: number;
   examItems: ExamListItem[];
   filteredExamItems: ExamListItem[];
   examTypeOptions: string[];
   classificationOptions: string[];
-  hasZhixueTabs: boolean;
   loadingState: LoadingState;
   pageCount: number;
   classificationRules: ExamClassificationRule[];
@@ -1364,10 +1641,8 @@ function ExamWorkspace(props: {
   selectedExamIds: Set<string>;
   selectedExamTypes: Set<string>;
   selectedClassificationLabels: Set<string>;
-  selectedTabId: number | null;
   viewMode: ExamViewMode;
   onBackToList: () => void;
-  onCheckTabs: () => void;
   onExamClick: (exam: ExamListItem) => void;
   onExamRefresh: (exam: ExamListItem) => void;
   onExamTypeToggle: (type: string) => void;
@@ -1375,13 +1650,10 @@ function ExamWorkspace(props: {
   onGenerateAnalysis: () => void;
   onLoadAcademicYears: () => void;
   onLoadSelectedYears: (years: AcademicYear[]) => void;
-  onOpenZhixue: () => void;
+  onReturnToYearSelection: () => void;
   onPageChange: (page: number) => void;
-  onSelectTab: (tabId: number) => void;
   onSubjectClick: (paper: PaperScore) => void;
-  onSelectFilteredExams: () => void;
-  onClearFilteredExams: () => void;
-  onSelectSameClassification: () => void;
+  onFilteredExamSelectionChange: (checked: boolean) => void;
   onToggleExam: (exam: ExamListItem, checked: boolean) => void;
   onYearSelectionChange: (years: AcademicYear[]) => void;
 }) {
@@ -1390,8 +1662,7 @@ function ExamWorkspace(props: {
 
   return (
     <div className="stack-lg">
-      <ConnectionCard {...props} />
-      {props.viewMode === "ready" ? <ReadyState hasZhixueTabs={props.hasZhixueTabs} /> : null}
+      {props.viewMode === "ready" ? <ReadyState onLoadAcademicYears={props.onLoadAcademicYears} /> : null}
       {props.viewMode === "selectYear" ? (
         <YearSelector
           academicYears={props.academicYears}
@@ -1408,63 +1679,13 @@ function ExamWorkspace(props: {
   );
 }
 
-function ConnectionCard({
-  availableTabs,
-  connectionStatus,
-  hasZhixueTabs,
-  selectedTabId,
-  onCheckTabs,
-  onLoadAcademicYears,
-  onOpenZhixue,
-  onSelectTab
-}: {
-  availableTabs: chrome.tabs.Tab[];
-  connectionStatus: string;
-  hasZhixueTabs: boolean;
-  selectedTabId: number | null;
-  onCheckTabs: () => void;
-  onLoadAcademicYears: () => void;
-  onOpenZhixue: () => void;
-  onSelectTab: (tabId: number) => void;
-}) {
-  return (
-    <section className="md-card stack">
-      <div className="spread">
-        <div>
-          <p className="breadcrumb">Connection</p>
-          <h2 className="section-title">智学网页面</h2>
-          <p className="helper-text">{connectionStatus}</p>
-        </div>
-        <div className="cluster">
-          <md-outlined-button onClick={onCheckTabs}>重新检测</md-outlined-button>
-          {hasZhixueTabs ? <md-filled-button onClick={onLoadAcademicYears}>获取考试列表</md-filled-button> : <md-filled-button onClick={onOpenZhixue}>打开智学网</md-filled-button>}
-        </div>
-      </div>
-      {hasZhixueTabs ? (
-        <md-filled-select
-          label="智学网页面"
-          value={String(selectedTabId ?? "")}
-          onInput={(event: Event) => onSelectTab(Number(valueFrom(event)))}
-        >
-          {availableTabs.map((tab) => (
-            <md-select-option value={String(tab.id)} key={tab.id}>
-              <div slot="headline">{formatTabTitle(tab)}</div>
-            </md-select-option>
-          ))}
-        </md-filled-select>
-      ) : (
-        <StatusAlert message="请先打开智学网页面并登录，登录后回到此页面重新检测。" />
-      )}
-    </section>
-  );
-}
-
-function ReadyState({ hasZhixueTabs }: { hasZhixueTabs: boolean }) {
+function ReadyState({ onLoadAcademicYears }: { onLoadAcademicYears: () => void }) {
   return (
     <section className="md-card empty-card">
-      <MaterialIcon name={hasZhixueTabs ? "task_alt" : "link_off"} />
-      <h2>{hasZhixueTabs ? "准备就绪" : "等待连接"}</h2>
-      <p>{hasZhixueTabs ? "点击获取考试列表开始获取数据。" : "请先打开智学网页面并登录。"}</p>
+      <MaterialIcon name="task_alt" />
+      <h2>准备获取考试</h2>
+      <p>连接已验证，点击下方按钮获取可用学年。</p>
+      <md-filled-button onClick={onLoadAcademicYears}>获取考试</md-filled-button>
     </section>
   );
 }
@@ -1533,10 +1754,9 @@ function ExamListView({
   onExamTypeToggle,
   onClassificationLabelToggle,
   onGenerateAnalysis,
-  onSelectFilteredExams,
-  onClearFilteredExams,
-  onSelectSameClassification,
-  onToggleExam
+  onFilteredExamSelectionChange,
+  onToggleExam,
+  onReturnToYearSelection
 }: {
   examItems: ExamListItem[];
   filteredExamItems: ExamListItem[];
@@ -1554,11 +1774,14 @@ function ExamListView({
   onExamTypeToggle: (type: string) => void;
   onClassificationLabelToggle: (label: string) => void;
   onGenerateAnalysis: () => void;
-  onSelectFilteredExams: () => void;
-  onClearFilteredExams: () => void;
-  onSelectSameClassification: () => void;
+  onFilteredExamSelectionChange: (checked: boolean) => void;
   onToggleExam: (exam: ExamListItem, checked: boolean) => void;
+  onReturnToYearSelection: () => void;
 }) {
+  const selectedFilteredCount = filteredExamItems.filter((exam) => selectedExamIds.has(getExamSelectionKey(exam))).length;
+  const allFilteredSelected = filteredExamItems.length > 0 && selectedFilteredCount === filteredExamItems.length;
+  const someFilteredSelected = selectedFilteredCount > 0 && !allFilteredSelected;
+
   return (
     <section className="stack-lg">
       <div className="md-card stack">
@@ -1569,6 +1792,7 @@ function ExamListView({
             <p className="helper-text">勾选考试后可生成成绩折线图；点击考试卡片进入详情。</p>
           </div>
           <div className="cluster">
+            <md-outlined-button onClick={onReturnToYearSelection}>重新选择学年</md-outlined-button>
             <div className="filter-chip-grid" role="group" aria-label="考试类型多选">
               {examTypeOptions.map((type) => (
                 <button
@@ -1606,9 +1830,15 @@ function ExamListView({
         </div>
         <div className="cluster">
           <span className="info-chip info-chip--strong">当前筛选 {filteredExamItems.length} 场</span>
-          <md-outlined-button disabled={filteredExamItems.length === 0} onClick={onSelectFilteredExams}>选择当前筛选结果</md-outlined-button>
-          <md-outlined-button disabled={filteredExamItems.length === 0} onClick={onClearFilteredExams}>取消当前筛选结果</md-outlined-button>
-          <md-filled-button disabled={selectedClassificationLabels.size === 0} onClick={onSelectSameClassification}>选择同分类全部考试</md-filled-button>
+          <label className="select-all-control" data-disabled={filteredExamItems.length === 0}>
+            <md-checkbox
+              checked={allFilteredSelected}
+              indeterminate={someFilteredSelected}
+              disabled={filteredExamItems.length === 0}
+              onInput={(event: Event) => onFilteredExamSelectionChange(checkedFrom(event))}
+            />
+            <span>全选当前筛选结果</span>
+          </label>
         </div>
       </div>
 
@@ -1617,36 +1847,22 @@ function ExamListView({
           {examItems.map((exam) => {
             const classificationLabels = getExamClassificationLabels(exam, classificationRules);
             return (
-              <article
-                className="md-card md-card--interactive exam-item"
+              <ExamCard
+                title={exam.examName}
+                selected={selectedExamIds.has(getExamSelectionKey(exam))}
+                selectionLabel={`选择 ${exam.examName}`}
+                metadata={[
+                  formatDate(exam.examCreateDateTime),
+                  exam.academicYearName,
+                  getExamTypeName(exam.examType),
+                  ...classificationLabels
+                ]}
+                status={exam.isFinal ? "批阅完成" : "正在批阅"}
                 key={getExamSelectionKey(exam)}
                 onClick={() => onExamClick(exam)}
-              >
-                <md-checkbox
-                  checked={selectedExamIds.has(getExamSelectionKey(exam))}
-                  onClick={(event: Event) => event.stopPropagation()}
-                  onInput={(event: Event) => onToggleExam(exam, checkedFrom(event))}
-                  aria-label={`选择 ${exam.examName}`}
-                />
-                <div className="exam-item__body">
-                  <h3>{exam.examName}</h3>
-                  <div className="record-chip-row">
-                    <span className="info-chip">{formatDate(exam.examCreateDateTime)}</span>
-                    <span className="info-chip">{exam.academicYearName}</span>
-                    <span className="info-chip">{getExamTypeName(exam.examType)}</span>
-                    {classificationLabels.map((label) => (
-                      <span className="info-chip info-chip--strong" key={label}>{label}</span>
-                    ))}
-                    <span className={`info-chip ${exam.isFinal ? "info-chip--strong" : ""}`}>
-                      {exam.isFinal ? "批阅完成" : "正在批阅"}
-                    </span>
-                  </div>
-                </div>
-                <button className="icon-button" type="button" aria-label={`刷新 ${exam.examName}`} onClick={(event) => { event.stopPropagation(); onExamRefresh(exam); }}>
-                  <MaterialIcon name="refresh" />
-                </button>
-                <MaterialIcon name="chevron_right" />
-              </article>
+                onToggle={(checked) => onToggleExam(exam, checked)}
+                onRefresh={() => onExamRefresh(exam)}
+              />
             );
           })}
         </div>
@@ -1671,6 +1887,52 @@ function ExamListView({
   );
 }
 
+function ExamCard({
+  title,
+  metadata,
+  status,
+  selected,
+  selectionLabel,
+  onToggle,
+  onClick,
+  onRefresh
+}: {
+  title: string;
+  metadata: string[];
+  status?: string;
+  selected: boolean;
+  selectionLabel: string;
+  onToggle: (checked: boolean) => void;
+  onClick: () => void;
+  onRefresh?: () => void;
+}) {
+  return (
+    <article className="md-card md-card--interactive exam-item" data-selected={selected}>
+      <md-checkbox
+        checked={selected}
+        onClick={(event: Event) => event.stopPropagation()}
+        onInput={(event: Event) => onToggle(checkedFrom(event))}
+        aria-label={selectionLabel}
+      />
+      <button className="exam-item__open" type="button" aria-label={`打开 ${title}`} onClick={onClick}>
+        <div className="exam-item__body">
+          <h3>{title}</h3>
+          <div className="record-chip-row">
+            {metadata.filter(Boolean).map((item, index) => <span className="info-chip" key={`${item}-${index}`}>{item}</span>)}
+            {status ? <span className="info-chip info-chip--strong">{status}</span> : null}
+          </div>
+        </div>
+        <MaterialIcon name="chevron_right" />
+      </button>
+      {onRefresh ? (
+        <button className="icon-button" type="button" aria-label={`刷新 ${title}`} onClick={(event) => { event.stopPropagation(); onRefresh(); }}>
+          <MaterialIcon name="refresh" />
+        </button>
+      ) : null}
+    </article>
+  );
+}
+
 function ExamDetailView({
   detail,
   onBack,
@@ -1680,9 +1942,28 @@ function ExamDetailView({
   onBack: () => void;
   onSubjectClick: (paper: PaperScore) => void;
 }) {
+  const [radarMetric, setRadarMetric] = useState<AnalysisMetric>("percentage");
   const totalScore = computeTotalFromSubjects(detail.reportMain);
   const classRankInfo = getClassRankInfo(detail.levelTrend);
   const paperList = detail.reportMain.result?.paperList ?? [];
+  const radarData = paperList
+    .map((paper) => {
+      const percentage = Number.isFinite(paper.userScore) && Number.isFinite(paper.standardScore) && paper.standardScore > 0
+        ? Math.round((paper.userScore / paper.standardScore) * 1000) / 10
+        : null;
+      const rank = getSubjectClassRankInfo(paper.paperId, detail.subjectLevelTrend);
+      const rankValue = typeof rank?.rank === "number" ? rank.rank : null;
+      const value = radarMetric === "percentage" ? percentage : rankValue;
+      if (value === null) return null;
+      return {
+        subject: paper.subjectName,
+        value,
+        display: radarMetric === "percentage" ? `${percentage}% · ${paper.userScore}/${paper.standardScore}` : `第 ${rankValue}/${rank?.total ?? "?"} 名`,
+        rankTotal: rank?.total
+      };
+    })
+    .filter((item): item is { subject: string; value: number; display: string; rankTotal: number | undefined } => Boolean(item));
+  const radarMaxRank = Math.max(1, ...radarData.map((item) => item.rankTotal ?? item.value));
 
   return (
     <section className="stack-lg">
@@ -1718,6 +1999,25 @@ function ExamDetailView({
           <p>暂无成绩概览数据。</p>
         )}
       </section>
+
+      {radarData.length >= 3 ? (
+        <ChartCard title="本次考试科目结构" action={<MetricSwitch value={radarMetric} onChange={setRadarMetric} />}>
+          <ResponsiveContainer width="100%" height={320}>
+            <RadarChart data={radarData}>
+              <PolarGrid />
+              <PolarAngleAxis dataKey="subject" />
+              <PolarRadiusAxis
+                angle={90}
+                domain={radarMetric === "percentage" ? [0, 100] : [1, radarMaxRank]}
+                reversed={radarMetric === "classRank"}
+                tickFormatter={(value) => radarMetric === "percentage" ? `${value}%` : `第${value}名`}
+              />
+              <Radar name={metricLabel(radarMetric)} dataKey="value" stroke="var(--md-sys-color-primary)" fill="var(--md-sys-color-primary)" fillOpacity={0.24} />
+              <Tooltip formatter={(_, name, item) => [(item.payload as { display?: string }).display ?? "暂无", name]} />
+            </RadarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      ) : null}
 
       <section className="stack">
         <h3 className="section-title">各科成绩详情</h3>
@@ -1780,6 +2080,7 @@ function AnalysisView({
   analysisMetric,
   analysisGroups,
   analysisAnomalies,
+  classificationRules,
   analysisTarget,
   analysisNote,
   analysisPlans,
@@ -1805,8 +2106,12 @@ function AnalysisView({
   onExamNoteChange,
   onGenerate,
   onRefresh,
+  onClose,
+  onOpenExam,
   onGoExams,
   onCachedExamToggle,
+  onCachedExamBatchToggle,
+  onOpenCachedExam,
   onSubjectSelect,
   onVisibleSubjectToggle
 }: {
@@ -1814,6 +2119,7 @@ function AnalysisView({
   analysisMetric: AnalysisMetric;
   analysisGroups: ReturnType<typeof classifyAnalysisRecords>;
   analysisAnomalies: AnalysisAnomaly[];
+  classificationRules: ExamClassificationRule[];
   analysisTarget: AnalysisTarget;
   analysisNote: string;
   analysisPlans: AnalysisPlan[];
@@ -1839,8 +2145,12 @@ function AnalysisView({
   onExamNoteChange: (examKey: string, note: string) => void;
   onGenerate: () => void;
   onRefresh: () => void;
+  onClose: () => void;
+  onOpenExam: (record: AnalysisExamRecord) => void;
   onGoExams: () => void;
   onCachedExamToggle: (key: string, checked: boolean) => void;
+  onCachedExamBatchToggle: (keys: string[], checked: boolean) => void;
+  onOpenCachedExam: (record: CachedScoreRecord<ReportMainResponse>) => void;
   onSubjectSelect: (subject: SubjectDetailState) => void;
   onVisibleSubjectToggle: (subjectName: string) => void;
 }) {
@@ -1852,12 +2162,6 @@ function AnalysisView({
   const subjectSeries = buildSubjectSeries(records);
   const summary = summarizeAnalysis(records);
   const comparisonSummary = buildExamComparisonSummary(records, analysisMetric, analysisAnomalies);
-  const radarRecord = records[records.length - 1] ?? null;
-  const radarData = radarRecord?.subjects.map((subject) => ({
-    subject: subject.subjectName,
-    value: subject.percentage,
-    score: `${subject.score}/${subject.standardScore}`
-  })) ?? [];
   const metricTotalSeries = buildMetricSeries(totalSeries, analysisMetric);
   const metricSubjectSeries = buildSubjectMetricSeries(subjectSeries, analysisMetric, visibleSubjectNames);
   const subjectChartData = buildCombinedSubjectChartData(metricSubjectSeries, metricTotalSeries);
@@ -1869,8 +2173,11 @@ function AnalysisView({
   const cacheSelector = (
     <CachedExamSelector
       records={cachedReportMainRecords}
+      classificationRules={classificationRules}
       selectedKeys={selectedCachedExamKeys}
       onToggle={onCachedExamToggle}
+      onToggleMany={onCachedExamBatchToggle}
+      onOpen={onOpenCachedExam}
     />
   );
   const templatePanel = (
@@ -1953,6 +2260,7 @@ function AnalysisView({
           <span className="info-chip">最近变化 {formatDelta(summary.latestDelta)}</span>
         </div>
         <div className="cluster">
+          <md-outlined-button onClick={onClose}>关闭分析</md-outlined-button>
           <md-outlined-button onClick={onRefresh}>刷新数据</md-outlined-button>
           <md-filled-button onClick={onGenerate}>重新生成</md-filled-button>
         </div>
@@ -1996,23 +2304,27 @@ function AnalysisView({
       </section>
 
       {analysisAnomalies.length > 0 ? (
-        <section className="md-card stack">
-          <div className="spread">
-            <div>
-              <p className="breadcrumb">Anomalies</p>
-              <h2 className="section-title">成绩异常标记</h2>
-            </div>
-            <span className="info-chip info-chip--strong">{analysisAnomalies.length} 条</span>
-          </div>
-          <div className="anomaly-list">
-            {analysisAnomalies.map((anomaly) => (
-              <article className="anomaly-item" data-severity={anomaly.severity} key={anomaly.id}>
-                <MaterialIcon name={anomaly.severity === "critical" ? "priority_high" : "warning"} />
-                <span>{anomaly.message}</span>
-              </article>
+        <details className="md-card anomaly-disclosure">
+          <summary>
+            <span><MaterialIcon name="warning" /><strong>成绩异常标记</strong></span>
+            <span className="info-chip info-chip--strong">{analysisAnomalies.length} 条 · {groupAnomaliesByExam(analysisAnomalies).length} 场</span>
+          </summary>
+          <div className="anomaly-groups">
+            {groupAnomaliesByExam(analysisAnomalies).map((group) => (
+              <section className="anomaly-group" key={group.examKey}>
+                <div className="spread"><h3 className="card-title">{group.examName}</h3><span className="info-chip">{group.items.length} 项</span></div>
+                <div className="anomaly-list">
+                  {group.items.map((anomaly) => (
+                    <article className="anomaly-item" data-severity={anomaly.severity} key={anomaly.id}>
+                      <MaterialIcon name={anomaly.severity === "critical" ? "priority_high" : "warning"} />
+                      <span><strong>{anomaly.subjectName ?? "总分"}</strong><small>{anomaly.message}</small></span>
+                    </article>
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
-        </section>
+        </details>
       ) : null}
 
       <div className="md-grid metric-grid">
@@ -2050,20 +2362,6 @@ function AnalysisView({
           </LineChart>
         </ResponsiveContainer>
       </ChartCard>
-
-      {radarRecord && radarData.length > 0 ? (
-        <ChartCard title={`${radarRecord.examName} 科目结构`} action={<span className="info-chip">得分率雷达图</span>}>
-          <ResponsiveContainer width="100%" height={320}>
-            <RadarChart data={radarData}>
-              <PolarGrid />
-              <PolarAngleAxis dataKey="subject" />
-              <PolarRadiusAxis angle={90} domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
-              <Radar name="得分率" dataKey="value" stroke="var(--md-sys-color-primary)" fill="var(--md-sys-color-primary)" fillOpacity={0.24} />
-              <Tooltip formatter={(value, name, item) => [`${value}% · ${(item.payload as { score?: string }).score ?? ""}`, name]} />
-            </RadarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-      ) : null}
 
       {subjectNames.length > 0 ? (
         <ChartCard title={`各科${metricLabel(analysisMetric)}趋势`} action={<MetricSwitch value={analysisMetric} onChange={onAnalysisMetricChange} />}>
@@ -2130,7 +2428,7 @@ function AnalysisView({
               <th>科目数</th>
               <th>等第</th>
               <th>备注</th>
-              <th>单科</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -2159,19 +2457,10 @@ function AnalysisView({
                   />
                 </td>
                 <td>
-                  <div className="table-action-row">
-                    {record.subjects.map((subject) => (
-                      <button
-                        className="subject-link-button"
-                        type="button"
-                        key={`${record.examId}-${subject.paperId}`}
-                        onClick={() => onSubjectSelect(buildSubjectDetailFromAnalysis(subject, records, "analysis"))}
-                      >
-                        <MaterialIcon name="open_in_new" />
-                        {subject.subjectName}
-                      </button>
-                    ))}
-                  </div>
+                  <button className="subject-link-button" type="button" onClick={() => onOpenExam(record)}>
+                    <MaterialIcon name="open_in_new" />
+                    打开考试
+                  </button>
                 </td>
               </tr>
             ))}
@@ -2184,13 +2473,46 @@ function AnalysisView({
 
 function CachedExamSelector({
   records,
+  classificationRules,
   selectedKeys,
-  onToggle
+  onToggle,
+  onToggleMany,
+  onOpen
 }: {
   records: CachedScoreRecord<ReportMainResponse>[];
+  classificationRules: ExamClassificationRule[];
   selectedKeys: Set<string>;
   onToggle: (key: string, checked: boolean) => void;
+  onToggleMany: (keys: string[], checked: boolean) => void;
+  onOpen: (record: CachedScoreRecord<ReportMainResponse>) => void;
 }) {
+  const [searchText, setSearchText] = useState("");
+  const [selectedTypes, setSelectedTypes] = useState<Set<string>>(() => new Set());
+  const [selectedClassifications, setSelectedClassifications] = useState<Set<string>>(() => new Set());
+  const typeOptions = useMemo(
+    () => Array.from(new Set(records.map((record) => record.examType).filter((type): type is string => Boolean(type))))
+      .sort((left, right) => getExamTypeName(left).localeCompare(getExamTypeName(right), "zh-Hans-CN")),
+    [records]
+  );
+  const classificationOptions = useMemo(
+    () => buildClassificationOptions(records.map(cachedRecordToExamItem), classificationRules),
+    [classificationRules, records]
+  );
+  const normalizedSearch = searchText.trim().toLocaleLowerCase("zh-Hans-CN");
+  const filteredRecords = useMemo(
+    () => records.filter((record) => {
+      const matchesType = selectedTypes.size === 0 || (record.examType ? selectedTypes.has(record.examType) : false);
+      const classificationLabels = getExamClassificationLabels(cachedRecordToExamItem(record), classificationRules);
+      const matchesClassification = selectedClassifications.size === 0 || classificationLabels.some((label) => selectedClassifications.has(label));
+      const searchableText = `${record.examName ?? record.examId} ${record.academicYearName ?? record.academicYear?.name ?? ""}`.toLocaleLowerCase("zh-Hans-CN");
+      return matchesType && matchesClassification && (!normalizedSearch || searchableText.includes(normalizedSearch));
+    }),
+    [classificationRules, normalizedSearch, records, selectedClassifications, selectedTypes]
+  );
+  const selectedFilteredCount = filteredRecords.filter((record) => selectedKeys.has(getCachedExamIdentity(record))).length;
+  const allFilteredSelected = filteredRecords.length > 0 && selectedFilteredCount === filteredRecords.length;
+  const someFilteredSelected = selectedFilteredCount > 0 && !allFilteredSelected;
+
   return (
     <section className="md-card stack">
       <div className="spread">
@@ -2202,25 +2524,74 @@ function CachedExamSelector({
         <span className="info-chip">已缓存 {records.length} 场</span>
       </div>
       {records.length > 0 ? (
-        <div className="cached-exam-grid">
-          {records.map((record) => {
+        <>
+          <div className="stack">
+            <md-outlined-text-field
+              label="搜索缓存考试"
+              value={searchText}
+              onInput={(event: Event) => setSearchText(valueFrom(event))}
+            />
+            <div className="filter-chip-grid" role="group" aria-label="缓存考试类型筛选">
+              {typeOptions.map((type) => {
+                const selected = selectedTypes.has(type);
+                return (
+                  <button className="filter-chip" type="button" data-selected={selected} key={type} onClick={() => setSelectedTypes(toggleSetValue(selectedTypes, type))}>
+                    <MaterialIcon name={selected ? "check" : "add"} />
+                    <span>{getExamTypeName(type)}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="filter-chip-grid" role="group" aria-label="缓存考试分类筛选">
+              {classificationOptions.map((label) => {
+                const selected = selectedClassifications.has(label);
+                return (
+                  <button className="filter-chip" type="button" data-selected={selected} key={label} onClick={() => setSelectedClassifications(toggleSetValue(selectedClassifications, label))}>
+                    <MaterialIcon name={selected ? "check" : "sell"} />
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+              {classificationOptions.length === 0 ? <span className="info-chip">暂无分类标签</span> : null}
+            </div>
+            <div className="cluster">
+              <span className="info-chip info-chip--strong">当前筛选 {filteredRecords.length} 场</span>
+              <label className="select-all-control" data-disabled={filteredRecords.length === 0}>
+                <md-checkbox
+                  checked={allFilteredSelected}
+                  indeterminate={someFilteredSelected}
+                  disabled={filteredRecords.length === 0}
+                  onInput={(event: Event) => onToggleMany(filteredRecords.map(getCachedExamIdentity), checkedFrom(event))}
+                />
+                <span>全选当前筛选结果</span>
+              </label>
+            </div>
+          </div>
+        <div className="exam-list">
+          {filteredRecords.map((record) => {
             const key = getCachedExamIdentity(record);
             const checked = selectedKeys.has(key);
             return (
-              <label className="cache-exam-item" data-selected={checked} key={key}>
-                <md-checkbox checked={checked} onInput={(event: Event) => onToggle(key, checkedFrom(event))} />
-                <span>
-                  <strong>{record.examName ?? record.examId}</strong>
-                  <small>
-                    {[record.academicYearName ?? record.academicYear?.name, record.examType ? getExamTypeName(record.examType) : null, formatCacheTime(record.cachedAt)]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </small>
-                </span>
-              </label>
+              <ExamCard
+                title={record.examName ?? record.examId}
+                metadata={[
+                  record.examCreateDateTime ? formatDate(record.examCreateDateTime) : "日期未知",
+                  record.academicYearName ?? record.academicYear?.name ?? "学年未知",
+                  record.examType ? getExamTypeName(record.examType) : "类型未知",
+                  ...getExamClassificationLabels(cachedRecordToExamItem(record), classificationRules)
+                ]}
+                status={`缓存于 ${formatCacheTime(record.cachedAt)}`}
+                selected={checked}
+                selectionLabel={`选择缓存考试 ${record.examName ?? record.examId}`}
+                onToggle={(next) => onToggle(key, next)}
+                onClick={() => onOpen(record)}
+                key={key}
+              />
             );
           })}
         </div>
+          {filteredRecords.length === 0 ? <StatusAlert message="当前筛选条件下没有缓存考试。" /> : null}
+        </>
       ) : (
         <StatusAlert message="暂无缓存成绩。查看一次考试详情或生成一次分析后，这里会出现可复用的成绩。" />
       )}
@@ -2316,7 +2687,7 @@ function AnalysisTemplatePanel({
         <div>
           <p className="breadcrumb">Analysis Template</p>
           <h2 className="section-title">分析模板</h2>
-          <p className="helper-text">模板只保存筛选、科目显隐、指标和目标线，不绑定具体考试。</p>
+          <p className="helper-text">模板按考试类型选择考试；应用时会自动勾选全部匹配的在线和缓存考试。</p>
         </div>
         <md-filled-button onClick={onSave}>保存当前模板</md-filled-button>
       </div>
@@ -2329,7 +2700,7 @@ function AnalysisTemplatePanel({
               </button>
               <span className="plan-item__body">
                 <strong>{template.name}</strong>
-                <small>{template.selectedExamTypes.length || "全部"} 类型 · {template.selectedClassificationLabels.length || "全部"} 标签 · {formatCacheTime(template.updatedAt)}</small>
+                <small>{template.selectedExamTypes.length ? template.selectedExamTypes.map(getExamTypeName).join("、") : "全部类型"} · {formatCacheTime(template.updatedAt)}</small>
               </span>
               <button className="icon-button" type="button" aria-label={`删除 ${template.name}`} onClick={() => onDelete(template.id)}>
                 <MaterialIcon name="delete" />
@@ -2338,7 +2709,7 @@ function AnalysisTemplatePanel({
           ))}
         </div>
       ) : (
-        <StatusAlert message="暂无分析模板。保存模板后，可快速恢复筛选条件和图表设置。" />
+        <StatusAlert message="暂无分析模板。保存后可按考试类型与分类快速选择考试。" />
       )}
     </section>
   );
@@ -2374,7 +2745,7 @@ function SettingsView({
         <div>
           <p className="breadcrumb">Theme</p>
           <h2 className="section-title">主题外观</h2>
-          <p className="helper-text">选择预设主题、Pride Color 或自定义 HCT 颜色；改动会即时应用。</p>
+          <p className="helper-text">选择预设主题或自定义 HCT 颜色；改动会即时应用。</p>
         </div>
         <ThemePicker settings={settings} onChange={onChange} />
       </section>
@@ -3349,16 +3720,30 @@ function buildExamComparisonSummary(records: AnalysisExamRecord[], metric: Analy
         })
         .filter((item): item is { subjectName: string; delta: number } => Boolean(item))
     : [];
-  const bestSubject = subjectDeltas.reduce<{ subjectName: string; delta: number } | null>((best, item) => (!best || item.delta > best.delta ? item : best), null);
-  const worstSubject = subjectDeltas.reduce<{ subjectName: string; delta: number } | null>((worst, item) => (!worst || item.delta < worst.delta ? item : worst), null);
+  const bestSubject = subjectDeltas
+    .filter((item) => item.delta > 0)
+    .reduce<{ subjectName: string; delta: number } | null>((best, item) => (!best || item.delta > best.delta ? item : best), null);
+  const worstSubject = subjectDeltas
+    .filter((item) => item.delta < 0)
+    .reduce<{ subjectName: string; delta: number } | null>((worst, item) => (!worst || item.delta < worst.delta ? item : worst), null);
 
   return [
     { label: "最近考试", value: latest.examName, strong: true },
     { label: metric === "classRank" ? "班排变化" : "总分变化", value: totalDelta === null ? "暂无" : formatDelta(totalDelta) },
-    { label: "提升最多", value: bestSubject ? `${bestSubject.subjectName} ${formatDelta(bestSubject.delta)}` : "暂无" },
-    { label: "下降最多", value: worstSubject ? `${worstSubject.subjectName} ${formatDelta(worstSubject.delta)}` : "暂无", strong: Boolean(worstSubject && worstSubject.delta < 0) },
+    { label: "提升最多", value: bestSubject ? `${bestSubject.subjectName} ${formatDelta(bestSubject.delta)}` : "暂无提升" },
+    { label: "下降最多", value: worstSubject ? `${worstSubject.subjectName} ${formatDelta(worstSubject.delta)}` : "暂无下降", strong: Boolean(worstSubject) },
     { label: "异常标记", value: `${anomalies.length} 条`, strong: anomalies.length > 0 }
   ];
+}
+
+function groupAnomaliesByExam(anomalies: AnalysisAnomaly[]): Array<{ examKey: string; examName: string; items: AnalysisAnomaly[] }> {
+  const groups = new Map<string, { examKey: string; examName: string; items: AnalysisAnomaly[] }>();
+  anomalies.forEach((anomaly) => {
+    const group = groups.get(anomaly.examKey) ?? { examKey: anomaly.examKey, examName: anomaly.examName, items: [] };
+    group.items.push(anomaly);
+    groups.set(anomaly.examKey, group);
+  });
+  return Array.from(groups.values());
 }
 
 function formatHealthExamples(records: CachedScoreRecord<ReportMainResponse>[]): string {
@@ -3442,17 +3827,53 @@ function checkedFrom(event: Event | React.FormEvent<HTMLElement>): boolean {
   return Boolean((event.currentTarget as HTMLElement & { checked?: boolean }).checked);
 }
 
-function formatTabTitle(tab: chrome.tabs.Tab): string {
-  const title = tab.title || tab.url || "智学网页面";
-  return title.length > 48 ? `${title.slice(0, 48)}...` : title;
-}
-
 function getAcademicYearKey(year: AcademicYear): string {
   return year.code ?? `${year.beginTime}-${year.endTime}-${year.name}`;
 }
 
+function isConnectableZhixueTab(tab: chrome.tabs.Tab): boolean {
+  try {
+    return new URL(tab.url ?? "").hostname === "www.zhixue.com";
+  } catch {
+    return false;
+  }
+}
+
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function logHomeworkError(stage: string, action: string, tabId: number, errorType: string, error: unknown): void {
+  console.error("[Owl Insight][homework] request failed", {
+    module: "homework",
+    stage,
+    action,
+    tabId,
+    errorType,
+    message: getErrorMessage(error),
+    time: new Date().toISOString()
+  });
+}
+
+function isMissingMessageReceiver(error: unknown): boolean {
+  const message = getErrorMessage(error).toLowerCase();
+  return message.includes("receiving end does not exist") || message.includes("could not establish connection");
+}
+
+function getHomeworkErrorType(error: unknown): string {
+  if (!(error instanceof Error)) return "HOMEWORK_REQUEST_FAILED";
+  if (error.name === "BACKGROUND_UNREACHABLE" || error.name === "CORS_RULE_UNAVAILABLE" || error.name === "CORS_RULE_SETUP_FAILED") {
+    return error.name;
+  }
+  return "HOMEWORK_REQUEST_FAILED";
+}
+
+function isCorsRuleError(error: unknown): boolean {
+  return error instanceof Error && (error.name === "CORS_RULE_UNAVAILABLE" || error.name === "CORS_RULE_SETUP_FAILED");
+}
+
+function isHomeworkAction(action: ExtensionRequest["action"]): boolean {
+  return action === "getHomeworkSubjects" || action === "getHomeworkList" || action === "getHomeworkResources";
 }
 
 function hctStateFromHex(hex: string) {

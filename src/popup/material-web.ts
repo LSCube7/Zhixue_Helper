@@ -6,6 +6,7 @@ import "@material/web/chips/filter-chip.js";
 import "@material/web/dialog/dialog.js";
 import "@material/web/divider/divider.js";
 import "@material/web/progress/circular-progress.js";
+import "@material/web/progress/linear-progress.js";
 import "@material/web/select/filled-select.js";
 import "@material/web/select/outlined-select.js";
 import "@material/web/select/select-option.js";
