@@ -1,0 +1,14 @@
+{
+  "extensionName": {
+    "message": "Owl Insight",
+    "description": "扩展名称，所有语言保持品牌名不变"
+  },
+  "extensionDescription": {
+    "message": "连接智学网，查看考试、分析成绩并获取作业资源",
+    "description": "扩展管理页面中的中文说明"
+  },
+  "actionTitle": {
+    "message": "打开 Owl Insight",
+    "description": "扩展工具栏图标提示"
+  }
+}

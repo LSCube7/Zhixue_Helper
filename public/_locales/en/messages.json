@@ -1,0 +1,14 @@
+{
+  "extensionName": {
+    "message": "Owl Insight",
+    "description": "Brand name used in every locale"
+  },
+  "extensionDescription": {
+    "message": "Connect to Zhixue to view exams, analyze scores, and access homework resources",
+    "description": "English description shown by the browser"
+  },
+  "actionTitle": {
+    "message": "Open Owl Insight",
+    "description": "Toolbar action tooltip"
+  }
+}

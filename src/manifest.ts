@@ -1,12 +1,18 @@
 const manifest = {
   manifest_version: 3,
-  name: "Owl Insight",
-  version: "2.0.0",
-  description: "Owl Insight：提高智学网使用体验",
-  permissions: ["activeTab", "storage", "tabs"],
-  host_permissions: ["https://www.zhixue.com/*", "https://ali-bg.zhixue.com/*"],
+  name: "__MSG_extensionName__",
+  version: "2.1.0",
+  description: "__MSG_extensionDescription__",
+  default_locale: "zh_CN",
+  permissions: ["activeTab", "storage", "tabs", "downloads", "scripting", "declarativeNetRequest"],
+  host_permissions: ["https://www.zhixue.com/*", "https://ali-bg.zhixue.com/*", "https://mhw.zhixue.com/*"],
   action: {
-    default_title: "Owl Insight"
+    default_title: "__MSG_actionTitle__",
+    default_icon: {
+      "16": "icons/owl-insight-16.png",
+      "48": "icons/owl-insight-48.png",
+      "128": "icons/owl-insight-128.png"
+    }
   },
   background: {
     service_worker: "src/background/background.ts",
@@ -26,9 +32,9 @@ const manifest = {
     }
   ],
   icons: {
-    "16": "icon.png",
-    "48": "icon.png",
-    "128": "icon.png"
+    "16": "icons/owl-insight-16.png",
+    "48": "icons/owl-insight-48.png",
+    "128": "icons/owl-insight-128.png"
   }
 } satisfies chrome.runtime.ManifestV3;
 

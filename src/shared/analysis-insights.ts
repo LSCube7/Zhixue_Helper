@@ -9,6 +9,13 @@ export type AnalysisAnomaly = {
   examKey: string;
   examName: string;
   subjectName?: string;
+  scope: "total" | "subject";
+  referenceExamKey?: string;
+  referenceExamName?: string;
+  previousValue?: number;
+  currentValue?: number;
+  delta?: number;
+  unit?: "percentagePoint" | "rank";
   message: string;
   severity: "warning" | "critical";
 };
@@ -210,6 +217,7 @@ export function detectAnalysisAnomalies(records: AnalysisExamRecord[], settings:
         kind: "missingScore",
         examKey,
         examName: record.examName,
+        scope: "total",
         message: `${record.examName} 缺少有效总分`,
         severity: "critical"
       });
@@ -223,6 +231,7 @@ export function detectAnalysisAnomalies(records: AnalysisExamRecord[], settings:
           examKey,
           examName: record.examName,
           subjectName: subject.subjectName,
+          scope: "subject",
           message: `${record.examName} ${subject.subjectName} 缺少有效成绩`,
           severity: "critical"
         });
@@ -242,15 +251,23 @@ export function detectAnalysisAnomalies(records: AnalysisExamRecord[], settings:
           kind: "scoreDrop",
           examKey: getExamKey(record),
           examName: record.examName,
-          message: `总分得分率较上一场下降 ${round(drop)} 分`,
+          scope: "total",
+          referenceExamKey: getExamKey(previousTotal),
+          referenceExamName: previousTotal.examName,
+          previousValue: previousTotal.percentage,
+          currentValue: record.percentage,
+          delta: round(drop),
+          unit: "percentagePoint",
+          message: `总分得分率由 ${previousTotal.examName} 的 ${previousTotal.percentage}% 降至 ${record.percentage}%（下降 ${round(drop)} 个百分点）`,
           severity: drop >= settings.scoreDropThreshold * 1.5 ? "critical" : "warning"
         });
       }
     }
 
-    const previousRank = typeof previousTotal?.classRank?.rank === "number" ? previousTotal.classRank.rank : null;
+    const rankReference = previousTotal;
+    const previousRank = typeof rankReference?.classRank?.rank === "number" ? rankReference.classRank.rank : null;
     const currentRank = typeof record.classRank?.rank === "number" ? record.classRank.rank : null;
-    if (previousRank !== null && currentRank !== null) {
+    if (rankReference && previousRank !== null && currentRank !== null) {
       const rankDrop = currentRank - previousRank;
       if (rankDrop >= settings.rankDropThreshold) {
         anomalies.push({
@@ -258,7 +275,14 @@ export function detectAnalysisAnomalies(records: AnalysisExamRecord[], settings:
           kind: "rankDrop",
           examKey: getExamKey(record),
           examName: record.examName,
-          message: `总分班级排名较上一场退步 ${rankDrop} 名`,
+          scope: "total",
+          referenceExamKey: getExamKey(rankReference),
+          referenceExamName: rankReference.examName,
+          previousValue: previousRank,
+          currentValue: currentRank,
+          delta: rankDrop,
+          unit: "rank",
+          message: `总分班级排名由 ${rankReference.examName} 的第 ${previousRank} 名降至第 ${currentRank} 名（退步 ${rankDrop} 名）`,
           severity: rankDrop >= settings.rankDropThreshold * 1.5 ? "critical" : "warning"
         });
       }
@@ -277,7 +301,13 @@ export function detectAnalysisAnomalies(records: AnalysisExamRecord[], settings:
             examKey: getExamKey(record),
             examName: record.examName,
             subjectName: subject.subjectName,
-            message: `${subject.subjectName} 得分率较上一场下降 ${round(drop)} 分`,
+            scope: "subject",
+            referenceExamName: previous.examName,
+            previousValue: previous.percentage,
+            currentValue: subject.percentage,
+            delta: round(drop),
+            unit: "percentagePoint",
+            message: `${subject.subjectName}得分率由 ${previous.examName} 的 ${previous.percentage}% 降至 ${subject.percentage}%（下降 ${round(drop)} 个百分点）`,
             severity: drop >= settings.scoreDropThreshold * 1.5 ? "critical" : "warning"
           });
         }
@@ -293,7 +323,13 @@ export function detectAnalysisAnomalies(records: AnalysisExamRecord[], settings:
               examKey: getExamKey(record),
               examName: record.examName,
               subjectName: subject.subjectName,
-              message: `${subject.subjectName} 班级排名较上一场退步 ${rankDrop} 名`,
+              scope: "subject",
+              referenceExamName: previous.examName,
+              previousValue: previousSubjectRank,
+              currentValue: currentSubjectRank,
+              delta: rankDrop,
+              unit: "rank",
+              message: `${subject.subjectName}班级排名由 ${previous.examName} 的第 ${previousSubjectRank} 名降至第 ${currentSubjectRank} 名（退步 ${rankDrop} 名）`,
               severity: rankDrop >= settings.rankDropThreshold * 1.5 ? "critical" : "warning"
             });
           }
