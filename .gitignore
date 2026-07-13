@@ -1,3 +1,8 @@
 node_modules/
 dist/
 *.tsbuildinfo
+marketing/motion/
+marketing/recording/
+marketing/video/
+marketing/video-cover/
+marketing/film/

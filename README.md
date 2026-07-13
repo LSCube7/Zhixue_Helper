@@ -1,6 +1,38 @@
-# Owl Insight
+<div align="center">
+  <img src="./public/owl-insight-logo.svg" width="156" alt="Owl Insight 标志">
+  <h1>Owl Insight</h1>
+  <p>看见成绩背后的趋势</p>
+  <p>面向智学网学生端的成绩分析与作业资源浏览器扩展</p>
+  <p>
+    <a href="https://chromewebstore.google.com/detail/lpbejlcolhahjdjmmdgjobahllppjabo"><img src="./marketing/CWS_badge.png" height="52" alt="从 Chrome Web Store 获取"></a>
+    <a href="https://microsoftedge.microsoft.com/addons/detail/fipdjdmcibblhobffoepdmjjckllbeaj"><img src="./marketing/English_Get%20it%20from%20Microsoft%20Edge.png" height="52" alt="从 Microsoft Edge 加载项获取"></a>
+  </p>
+  <p>
+    <a href="https://youtu.be/RDyku0ibpDQ"><img src="https://img.shields.io/badge/YouTube-观看演示-FF0000?logo=youtube&amp;logoColor=white" alt="在 YouTube 观看演示"></a>
+    <a href="https://www.bilibili.com/video/BV1iTNm6rEDC/"><img src="https://img.shields.io/badge/哔哩哔哩-观看演示-00A1D6?logo=bilibili&amp;logoColor=white" alt="在哔哩哔哩观看演示"></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/github/license/LSCube7/Zhixue_Helper" alt="GitHub 许可证"></a>
+  </p>
+</div>
 
-Owl Insight 是面向智学网学生端的 Chrome 扩展，用于查看考试、缓存成绩、生成本地分析并获取作业资源。当前版本为 **v2.2.0**。
+<p align="center">
+  <a href="https://www.bilibili.com/video/BV1iTNm6rEDC/"><img src="./marketing/chrome-web-store/marquee-1400x560.png" width="100%" alt="Owl Insight 功能概览"></a>
+</p>
+
+Owl Insight 用于查看考试、缓存成绩、生成本地分析并获取作业资源。当前版本为 **v2.2.0**。
+
+## 获取扩展
+
+- [Chrome Web Store](https://chromewebstore.google.com/detail/lpbejlcolhahjdjmmdgjobahllppjabo)
+- [Microsoft Edge 加载项](https://microsoftedge.microsoft.com/addons/detail/fipdjdmcibblhobffoepdmjjckllbeaj)
+
+商店页面在审核期间可能暂时无法公开访问，审核完成后可继续使用以上固定链接安装和接收更新。
+
+## 演示视频
+
+- [YouTube](https://youtu.be/RDyku0ibpDQ)
+- [哔哩哔哩](https://www.bilibili.com/video/BV1iTNm6rEDC/)
+
+视频页面在审核或转码期间可能暂时无法访问。
 
 ## 功能
 
@@ -12,7 +44,28 @@ Owl Insight 是面向智学网学生端的 Chrome 扩展，用于查看考试、
 - Material Design 3：支持浅色、深色、动态配色和无障碍状态提示。
 - 公开演示模式：无需登录即可使用固定虚拟数据体验考试详情、趋势分析和作业资源；演示数据不会访问智学网或写入真实缓存。
 
-## 安装
+## 界面预览
+
+<table>
+  <tr>
+    <td><img src="./marketing/02-score-trends-1280x800.png" alt="成绩趋势分析"></td>
+    <td><img src="./marketing/03-subject-analysis-1280x800.png" alt="单科成绩分析"></td>
+  </tr>
+  <tr>
+    <td align="center">成绩与排名趋势</td>
+    <td align="center">单科成绩分析</td>
+  </tr>
+  <tr>
+    <td><img src="./marketing/04-anomaly-insight-1280x800.png" alt="异常波动洞察"></td>
+    <td><img src="./marketing/05-homework-resources-1280x800.png" alt="作业资源整理"></td>
+  </tr>
+  <tr>
+    <td align="center">异常波动洞察</td>
+    <td align="center">作业资源整理</td>
+  </tr>
+</table>
+
+## 从源码安装
 
 1. 安装项目已有依赖：`pnpm install`
 2. 运行构建：`pnpm run build`
@@ -73,6 +126,7 @@ pnpm run dev        # Vite 开发模式
 
 ## 注意事项
 
+- Owl Insight 是第三方独立扩展，与智学网官方不存在隶属或合作关系。
 - 智学网接口可能随服务端更新而变化；失败提示会标明功能模块和建议操作。
 - 真实数据验证需要用户本人已登录的智学网页面。
 - 排名和资源内容以智学网当前账号实际返回的数据为准。

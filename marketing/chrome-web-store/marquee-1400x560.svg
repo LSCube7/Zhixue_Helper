@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="560" viewBox="0 0 1400 560" role="img" aria-labelledby="title desc">
+  <title id="title">Owl Insight Chrome Web Store marquee</title>
+  <desc id="desc">Owl Insight branding with abstract score analysis dashboard cards and a demo mode badge.</desc>
+  <defs>
+    <linearGradient id="background" x1="64" y1="24" x2="1340" y2="548" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#171126"/>
+      <stop offset="0.48" stop-color="#35235E"/>
+      <stop offset="1" stop-color="#153FB2"/>
+    </linearGradient>
+    <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#FFAA00" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#FFAA00" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FFFFFF" stop-opacity="0.20"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.07"/>
+    </linearGradient>
+    <filter id="shadow" x="-35%" y="-35%" width="170%" height="170%">
+      <feDropShadow dx="0" dy="22" stdDeviation="26" flood-color="#080512" flood-opacity="0.36"/>
+    </filter>
+  </defs>
+
+  <rect width="1400" height="560" fill="url(#background)"/>
+  <circle cx="1248" cy="12" r="310" fill="#6750A4" opacity="0.24"/>
+  <circle cx="1370" cy="548" r="240" fill="#FFAA00" opacity="0.08"/>
+  <path d="M-40 465C166 381 269 491 472 406C675 322 799 403 974 321C1142 242 1260 281 1448 194" stroke="#FFFFFF" stroke-opacity="0.055" stroke-width="72" fill="none" stroke-linecap="round"/>
+  <g opacity="0.12" fill="#FFFFFF">
+    <circle cx="64" cy="64" r="3"/><circle cx="104" cy="64" r="3"/><circle cx="144" cy="64" r="3"/><circle cx="184" cy="64" r="3"/>
+    <circle cx="64" cy="104" r="3"/><circle cx="104" cy="104" r="3"/><circle cx="144" cy="104" r="3"/><circle cx="184" cy="104" r="3"/>
+    <circle cx="64" cy="144" r="3"/><circle cx="104" cy="144" r="3"/><circle cx="144" cy="144" r="3"/><circle cx="184" cy="144" r="3"/>
+  </g>
+
+  <g transform="translate(104 94)">
+    <g transform="scale(.3125)">
+      <path d="M256 74v48" stroke="#FFAA00" stroke-width="28" stroke-linecap="round"/>
+      <path d="m185 96-28-31M327 96l28-31" stroke="#FFAA00" stroke-width="28" stroke-linecap="round" fill="none"/>
+      <path fill="#6750A4" d="M226 137c-32-31-72-45-111-30-49 18-78 70-66 122 12 55 63 91 118 82 25-4 47-16 64-34-52 12-103-18-113-68-9-46 19-91 64-102 15-4 30-3 44 0z"/>
+      <path fill="#7FA5FF" d="M286 137c32-31 72-45 111-30 49 18 78 70 66 122-12 55-63 91-118 82-25-4-47-16-64-34 52 12 103-18 113-68 9-46-19-91-64-102-15-4-30-3-44 0z"/>
+      <path fill="#FFAA00" d="M241 142c0-9 7-16 15-16s15 7 15 16l-6 126c-1 13-5 25-9 33-4-8-8-20-9-33z"/>
+      <path fill="#E9E2FF" d="m256 330 30 26-30 35-30-35z"/>
+    </g>
+    <text x="0" y="220" fill="#FFFFFF" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="62" font-weight="720" letter-spacing="-1.4">Owl Insight</text>
+    <text x="2" y="276" fill="#F5EFFF" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="32" font-weight="650">看见成绩背后的趋势</text>
+    <text x="2" y="320" fill="#CFC5DF" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="19">成绩趋势 · 科目分析 · 异常洞察 · 作业整理</text>
+    <g transform="translate(0 352)">
+      <rect width="176" height="42" rx="21" fill="#FFAA00"/>
+      <circle cx="24" cy="21" r="7" fill="#2E2868"/>
+      <text x="43" y="28" fill="#24193E" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="16" font-weight="700">内置公开演示</text>
+    </g>
+  </g>
+
+  <g transform="translate(690 78)" filter="url(#shadow)">
+    <g transform="rotate(-3 280 205)">
+      <rect width="584" height="410" rx="32" fill="#F9F6FF"/>
+      <rect width="584" height="64" rx="32" fill="#EEE8F4"/>
+      <rect y="32" width="584" height="32" fill="#EEE8F4"/>
+      <circle cx="30" cy="32" r="7" fill="#6750A4"/><circle cx="52" cy="32" r="7" fill="#B5A7C8"/><circle cx="74" cy="32" r="7" fill="#D4C8DF"/>
+      <rect x="104" y="24" width="116" height="16" rx="8" fill="#D7CCE3"/>
+      <g transform="translate(24 88)">
+        <rect width="336" height="184" rx="22" fill="#FFFFFF" stroke="#E9E1EF"/>
+        <text x="20" y="34" fill="#30263D" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="15" font-weight="700">总分与年级排名趋势</text>
+        <text x="20" y="58" fill="#746A7E" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="11">最近 6 场考试</text>
+        <path d="M20 147C56 137 65 105 98 110C130 115 142 76 177 86C205 94 223 52 256 65C279 73 295 44 318 49V164H20Z" fill="url(#chartFill)"/>
+        <path d="M20 147C56 137 65 105 98 110C130 115 142 76 177 86C205 94 223 52 256 65C279 73 295 44 318 49" fill="none" stroke="#6750A4" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+        <g fill="#FFAA00" stroke="#FFFFFF" stroke-width="3">
+          <circle cx="20" cy="147" r="6"/><circle cx="98" cy="110" r="6"/><circle cx="177" cy="86" r="6"/><circle cx="256" cy="65" r="6"/><circle cx="318" cy="49" r="6"/>
+        </g>
+      </g>
+      <g transform="translate(376 88)">
+        <rect width="184" height="184" rx="22" fill="#FFFFFF" stroke="#E9E1EF"/>
+        <text x="18" y="34" fill="#30263D" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="14" font-weight="700">科目表现</text>
+        <g transform="translate(92 108)" fill="none">
+          <polygon points="0,-54 47,-27 47,27 0,54 -47,27 -47,-27" stroke="#DDD4E7"/>
+          <polygon points="0,-36 31,-18 31,18 0,36 -31,18 -31,-18" stroke="#E9E2EF"/>
+          <polygon points="0,-49 40,-17 25,22 -5,45 -37,14 -32,-30" fill="#6750A4" fill-opacity="0.22" stroke="#6750A4" stroke-width="3"/>
+        </g>
+      </g>
+      <g transform="translate(24 292)">
+        <rect width="536" height="94" rx="22" fill="#FFF8E8" stroke="#F3D99A"/>
+        <circle cx="42" cy="47" r="22" fill="#FFAA00" opacity="0.24"/>
+        <path d="M42 34v17M42 61h.01" stroke="#8A5A00" stroke-width="4" stroke-linecap="round"/>
+        <text x="79" y="38" fill="#513B17" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="14" font-weight="700">一次波动，值得关注</text>
+        <text x="79" y="63" fill="#786343" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12">演示数据帮助你快速了解异常检测与科目分析。</text>
+      </g>
+    </g>
+  </g>
+</svg>
