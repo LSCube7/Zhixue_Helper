@@ -116,6 +116,14 @@ pnpm run build      # 构建到 dist
 pnpm run dev        # Vite 开发模式
 ```
 
+### 发布扩展
+
+1. 同步更新 `package.json`、`src/manifest.ts` 和 `CHANGELOG.md` 中的版本。
+2. 创建并推送对应的 `v*` 标签，例如 `v2.3.0`。
+3. GitHub Actions 会执行类型检查和构建，将 `dist` 内容打包为 `owl-insight-v2.3.0.zip`，并使用 `CHANGELOG.md` 中的对应中文版本说明发布 GitHub Release。
+
+也可以在 Actions 页手动运行 `Build and release extension`，并填写已经存在的版本标签。标签版本、`package.json` 版本或构建后 Manifest 版本不一致时，发布会停止。
+
 主要目录：
 
 - `src/popup`：React 应用、连接页、考试/分析页面和作业页。
