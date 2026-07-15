@@ -1,0 +1,135 @@
+name: Build and release extension
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布的版本标签，例如 v2.3.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "10.8.0"
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve release tag
+        id: release
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag="${INPUT_TAG}"
+          fi
+
+          if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: ${tag}" >&2
+            exit 1
+          fi
+
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "version=${tag#v}" >> "${GITHUB_OUTPUT}"
+          echo "archive=owl-insight-${tag}.zip" >> "${GITHUB_OUTPUT}"
+
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check types
+        run: pnpm run typecheck
+
+      - name: Build extension
+        run: pnpm run build
+
+      - name: Verify release version
+        env:
+          EXPECTED_VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          manifest_version="$(node -p "require('./dist/manifest.json').version")"
+
+          if [[ "${package_version}" != "${EXPECTED_VERSION}" ]]; then
+            echo "package.json version ${package_version} does not match tag version ${EXPECTED_VERSION}." >&2
+            exit 1
+          fi
+
+          if [[ "${manifest_version}" != "${EXPECTED_VERSION}" ]]; then
+            echo "dist/manifest.json version ${manifest_version} does not match tag version ${EXPECTED_VERSION}." >&2
+            exit 1
+          fi
+
+      - name: Package extension
+        env:
+          ARCHIVE: ${{ steps.release.outputs.archive }}
+        shell: bash
+        run: |
+          cd dist
+          zip -r "../${ARCHIVE}" .
+
+      - name: Prepare Chinese release notes
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          awk -v tag="${RELEASE_TAG}" '
+            $0 == "## " tag || index($0, "## " tag " ") == 1 { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+
+          if [[ ! -s release-notes.md ]]; then
+            printf 'Owl Insight %s 扩展安装包。\n\n请下载 ZIP 文件并解压后，通过浏览器扩展管理页加载。\n' "${RELEASE_TAG}" > release-notes.md
+          fi
+
+      - name: Publish GitHub Release
+        env:
+          ARCHIVE: ${{ steps.release.outputs.archive }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" "${ARCHIVE}" --clobber
+            gh release edit "${RELEASE_TAG}" \
+              --title "Owl Insight ${RELEASE_TAG}" \
+              --notes-file release-notes.md
+          else
+            gh release create "${RELEASE_TAG}" "${ARCHIVE}" \
+              --title "Owl Insight ${RELEASE_TAG}" \
+              --notes-file release-notes.md \
+              --verify-tag
+          fi
