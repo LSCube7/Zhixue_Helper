@@ -18,7 +18,7 @@
   <a href="https://www.bilibili.com/video/BV1iTNm6rEDC/"><img src="./marketing/chrome-web-store/marquee-1400x560.png" width="100%" alt="Owl Insight 功能概览"></a>
 </p>
 
-Owl Insight 用于查看考试、缓存成绩、生成本地分析并获取作业资源。当前版本为 **v2.2.0**。
+Owl Insight 用于查看考试、缓存成绩、生成本地分析并获取作业资源。当前版本为 **v2.2.1**。
 
 ## 获取扩展
 
