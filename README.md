@@ -94,15 +94,13 @@ Owl Insight 不会要求用户复制 Cookie，也不会把 Cookie 或临时 toke
 
 ## 权限说明
 
-- `tabs`：检测并连接用户选择的智学网页面。
-- `activeTab`：访问当前用户主动使用的智学网页面。
-- `storage`：保存主题设置和扩展本地数据。
 - `downloads`：仅在用户点击下载后保存单项或批量作业资源。
 - `scripting`：用于在已打开的智学网页面缺少连接脚本时恢复连接，以及在所选页面内临时验证作业会话；不会读取 Cookie 内容。
 - `declarativeNetRequest`：仅为扩展自身发往 `mhw.zhixue.com` 的作业请求补充必要的 CORS 响应头；规则受作业主机和扩展来源限制，不读取或拦截请求内容。Edge/Chrome 可能显示“管理网络请求”权限提示。
 - `https://www.zhixue.com/*`：连接学生页面并获取考试、资料和临时登录凭证。
-- `https://ali-bg.zhixue.com/*`：获取学年信息。
 - `https://mhw.zhixue.com/*`：获取作业列表和作业资源。
+
+扩展仅查询 `https://www.zhixue.com/*` 页面；匹配的主机权限已提供读取页面标题、地址和注入连接脚本所需的能力，因此无需额外申请 `tabs` 或 `activeTab`。主题设置使用扩展页面自身的 localStorage，成绩与分析数据使用 IndexedDB，因此无需申请 `storage`。学年请求由智学网页面上下文发起，也无需为 `ali-bg.zhixue.com` 申请扩展主机权限。
 
 未申请 `cookies` 权限。认证请求由浏览器自动携带当前智学网会话 Cookie，扩展代码不读取 Cookie 内容。
 
