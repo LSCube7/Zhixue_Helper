@@ -1622,9 +1622,27 @@ function NavigationRail({
   );
 }
 
-const appVersion = "2.2.0";
+const appVersion = chrome.runtime.getManifest().version;
 
 const changelogEntries = [
+  {
+    title: "v2.2.1",
+    label: "权限审核修复",
+    groups: [
+      {
+        title: "修复",
+        items: [
+          "精简扩展权限声明，移除未使用的本地存储、标签页临时访问及多余主机访问权限。"
+        ]
+      },
+      {
+        title: "注意事项",
+        items: [
+          "本次更新不会清除主题设置、成绩缓存或分析配置，也不需要重新登录或重新授权。"
+        ]
+      }
+    ]
+  },
   {
     title: "v2.2.0",
     label: "公开演示与界面修复",
