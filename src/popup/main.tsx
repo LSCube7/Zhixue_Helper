@@ -273,7 +273,7 @@ function App() {
   const checkZhixueTabs = useCallback(async () => {
     if (runtimeModeRef.current === "demo") return;
     try {
-      const tabs = await chrome.tabs.query({});
+      const tabs = await chrome.tabs.query({ url: "https://www.zhixue.com/*" });
       const zhixueTabs = tabs.filter((tab) => tab.id && isConnectableZhixueTab(tab));
 
       setAvailableTabs(zhixueTabs);

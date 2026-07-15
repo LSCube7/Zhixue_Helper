@@ -4,8 +4,8 @@ const manifest = {
   version: "2.2.0",
   description: "__MSG_extensionDescription__",
   default_locale: "zh_CN",
-  permissions: ["activeTab", "storage", "tabs", "downloads", "scripting", "declarativeNetRequest"],
-  host_permissions: ["https://www.zhixue.com/*", "https://ali-bg.zhixue.com/*", "https://mhw.zhixue.com/*"],
+  permissions: ["downloads", "scripting", "declarativeNetRequest"],
+  host_permissions: ["https://www.zhixue.com/*", "https://mhw.zhixue.com/*"],
   action: {
     default_title: "__MSG_actionTitle__",
     default_icon: {
